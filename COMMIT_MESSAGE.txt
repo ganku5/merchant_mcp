@@ -1,0 +1,18 @@
+feat: Initial production-ready Merchant MCP implementation
+
+Features:
+- 14 MCP tools across 4 phases (Understanding, Building, Testing, Debugging)
+- Ground truth for 3 endpoints: orders.create, order.status, refund.create
+- 253 error codes including 235 IBMB error codes
+- Unified database layer with PostgreSQL + JSON parsing
+- Multi-language code examples (Python, Node.js, Java, Go, PHP)
+- Webhook diagnostics with HMAC-SHA256 verification
+- Docker + Kubernetes deployment configs
+- Comprehensive test suite (20 tests, 100% pass)
+
+Components:
+- src/server/mcp_server.py - FastAPI MCP server with SSE transport
+- src/tools/* - All 14 tool implementations
+- src/utils/database.py - Unified DB layer
+- src/ingestion/pipeline.py - Document ingestion
+- Tests fixtures and validation scripts
