@@ -1,0 +1,50 @@
+[
+  {
+    "code": "ORDER_ID_EXISTS",
+    "status": 400,
+    "cat": "merchant_action",
+    "msg": "Order ID must be unique"
+  },
+  {
+    "code": "INVALID_AMOUNT",
+    "status": 400,
+    "cat": "merchant_action",
+    "msg": "Amount in paise required"
+  },
+  {
+    "code": "INVALID_EMAIL",
+    "status": 400,
+    "cat": "merchant_action",
+    "msg": "Invalid email format"
+  },
+  {
+    "code": "ORDER_NOT_FOUND",
+    "status": 404,
+    "cat": "merchant_action",
+    "msg": "Order does not exist"
+  },
+  {
+    "code": "PAYMENT_DECLINED",
+    "status": 200,
+    "cat": "terminal",
+    "msg": "Declined by bank"
+  },
+  {
+    "code": "GATEWAY_TIMEOUT",
+    "status": 504,
+    "cat": "retryable",
+    "msg": "Timeout",
+    "retry": {
+      "max": 3
+    }
+  },
+  {
+    "code": "RATE_LIMIT",
+    "status": 429,
+    "cat": "retryable",
+    "msg": "Too many requests",
+    "retry": {
+      "max": 5
+    }
+  }
+]

@@ -1,0 +1,515 @@
+[
+  {
+    "error_code": "ORDER_ID_EXISTS",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Order ID already exists in the system",
+    "description": "The order_id provided has already been used for a transaction. Each order must have a unique identifier.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Reusing order_id from a previous transaction",
+      "Duplicate request without idempotency key",
+      "Retry logic incorrectly retrying without new order_id"
+    ],
+    "fix_suggestions": [
+      "Generate a new unique order_id using UUID or timestamp-based format",
+      "Implement order_id uniqueness check in your system before calling API",
+      "Use order_ref with timestamp suffix: order_{timestamp}_{sequence}"
+    ],
+    "bank_specific": null,
+    "related_errors": ["DUPLICATE_REQUEST_ID"]
+  },
+  {
+    "error_code": "INVALID_AMOUNT",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Amount must be a positive integer greater than 100 paise",
+    "description": "The amount field is invalid. Amount must be specified in smallest currency unit (paise for INR) and meet minimum value requirements.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Amount sent as decimal (100.50) instead of integer (10050)",
+      "Amount in rupees instead of paise",
+      "Negative or zero amount",
+      "Amount below minimum threshold (100 paise = ₹1)"
+    ],
+    "fix_suggestions": [
+      "Multiply rupee value by 100: amount_in_paise = rupees * 100",
+      "Use integer type, not float or decimal",
+      "Validate amount >= 100 before API call",
+      "Round to nearest rupee if dealing with paise"
+    ],
+    "bank_specific": null,
+    "related_errors": ["AMOUNT_MISMATCH", "INVALID_CURRENCY"]
+  },
+  {
+    "error_code": "INVALID_EMAIL",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Customer email format is invalid",
+    "description": "The customer_email field does not conform to RFC 5322 email format.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Missing @ symbol",
+      "Invalid characters in local part",
+      "Domain without TLD",
+      "Trailing/leading whitespace"
+    ],
+    "fix_suggestions": [
+      "Trim whitespace before validation",
+      "Use email regex: /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/",
+      "Consider using validation library like email-validator",
+      "Fallback to customer phone if email unavailable"
+    ],
+    "bank_specific": null,
+    "related_errors": ["INVALID_PHONE", "REQUIRED_FIELD_MISSING"]
+  },
+  {
+    "error_code": "ORDER_NOT_FOUND",
+    "http_status": 404,
+    "category": "merchant_action",
+    "message": "Order ID does not exist in the system",
+    "description": "The specified order_id could not be found. May indicate order was never created or belongs to different merchant account.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Typo in order_id",
+      "Querying before order creation completed",
+      "Wrong environment (prod vs sandbox)",
+      "Different merchant account credentials"
+    ],
+    "fix_suggestions": [
+      "Verify order_id spelling and case sensitivity",
+      "Ensure order creation succeeded before querying",
+      "Check API key matches environment (sandbox/production)",
+      "Log all order_ids locally for reference"
+    ],
+    "bank_specific": null,
+    "related_errors": ["TRANSACTION_NOT_FOUND", "REFUND_NOT_FOUND"]
+  },
+  {
+    "error_code": "PAYMENT_DECLINED",
+    "http_status": 200,
+    "category": "terminal",
+    "message": "Payment declined by issuing bank",
+    "description": "The customer's bank declined the transaction. This is a final state - do not retry without customer action.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Insufficient funds",
+      "Card blocked or expired",
+      "Risk rules triggered at bank",
+      "Daily transaction limit exceeded",
+      "International transaction disabled"
+    ],
+    "fix_suggestions": [
+      "Display clear failure message to customer",
+      "Prompt for alternative payment method",
+      "Suggest contacting issuing bank",
+      "Offer COD or other payment options",
+      "Log decline reason for analytics"
+    ],
+    "bank_specific": {
+      "axis": "May include specific decline code in response.additional_fields.decline_code",
+      "hdfc": "International transactions may require OTP approval"
+    },
+    "related_errors": ["INSUFFICIENT_FUNDS", "CARD_EXPIRED", "AUTHENTICATION_FAILED"]
+  },
+  {
+    "error_code": "GATEWAY_TIMEOUT",
+    "http_status": 504,
+    "category": "retryable",
+    "message": "Payment gateway did not respond within timeout period",
+    "description": "The upstream payment gateway timed out. Transaction status is unknown and should be verified via status check.",
+    "retry_guidance": {
+      "max_retries": 3,
+      "backoff_strategy": "exponential",
+      "initial_delay_seconds": 2,
+      "max_delay_seconds": 30,
+      "cooldown_period_seconds": 60
+    },
+    "common_causes": [
+      "Network issues between Juspay and gateway",
+      "High load on gateway servers",
+      "Slow response from issuing bank",
+      "Maintenance window at gateway"
+    ],
+    "fix_suggestions": [
+      "DO NOT retry payment immediately - check status first",
+      "Poll order.status endpoint to determine actual transaction state",
+      "Use idempotency key if re-initiating payment",
+      "Implement circuit breaker for gateway health"
+    ],
+    "bank_specific": null,
+    "related_errors": ["TIMEOUT", "GATEWAY_ERROR", "NETWORK_ERROR"]
+  },
+  {
+    "error_code": "RATE_LIMIT_EXCEEDED",
+    "http_status": 429,
+    "category": "retryable",
+    "message": "API rate limit exceeded for your account",
+    "description": "Too many requests sent in short time period. Rate limits protect API stability.",
+    "retry_guidance": {
+      "max_retries": 5,
+      "backoff_strategy": "exponential",
+      "initial_delay_seconds": 1,
+      "max_delay_seconds": 60,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Burst of requests without throttling",
+      "Recursive retry without backoff",
+      "Multiple services sharing same API key",
+      "Load testing without coordination"
+    ],
+    "fix_suggestions": [
+      "Implement exponential backoff starting at 1 second",
+      "Honor Retry-After header if present",
+      "Use separate API keys for different services",
+      "Consider increasing rate limits via support",
+      "Implement request queuing for bulk operations"
+    ],
+    "bank_specific": null,
+    "related_errors": []
+  },
+  {
+    "error_code": "UNAUTHORIZED",
+    "http_status": 401,
+    "category": "merchant_action",
+    "message": "Authentication failed - invalid or expired API key",
+    "description": "The API key provided is invalid, expired, or does not have permission for this operation.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Incorrect API key copied",
+      "Using sandbox key in production or vice versa",
+      "API key revoked or rotated",
+      "Missing Authorization header",
+      "Wrong header format (need 'Bearer TOKEN')"
+    ],
+    "fix_suggestions": [
+      "Verify API key from dashboard matches environment",
+      "Check Authorization header format: 'Bearer YOUR_API_KEY'",
+      "Regenerate key if compromised",
+      "Ensure key has required permissions",
+      "Rotate keys periodically for security"
+    ],
+    "bank_specific": null,
+    "related_errors": ["FORBIDDEN", "MERCHANT_NOT_ACTIVE"]
+  },
+  {
+    "error_code": "ORDER_NOT_CHARGED",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Order is not in CHARGED status - cannot refund",
+    "description": "Refund can only be initiated for orders that have been successfully charged.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Attempting refund before payment completes",
+      "Order failed or was cancelled",
+      "Wrong order_id used",
+      "Race condition in async flow"
+    ],
+    "fix_suggestions": [
+      "Check order.status before initiating refund",
+      "Wait for webhook or poll until status is CHARGED",
+      "Verify order_id corresponds to successful payment",
+      "Implement webhook-driven refund flow"
+    ],
+    "bank_specific": null,
+    "related_errors": ["REFUND_NOT_ALLOWED", "ALREADY_REFUNDED"]
+  },
+  {
+    "error_code": "INVALID_REFUND_AMOUNT",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Refund amount exceeds eligible amount",
+    "description": "The refund amount requested is greater than the amount available for refund.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Partial refund sum exceeds order total",
+      "Currency conversion mismatch",
+      "Previous refunds not accounted for",
+      "Decimal/float precision issue"
+    ],
+    "fix_suggestions": [
+      "Calculate remaining refundable: order.amount - order.amount_refunded",
+      "Track refund amounts in your database",
+      "Use integer math (paise) to avoid float errors",
+      "Check order.status for existing refunds before creating new"
+    ],
+    "bank_specific": null,
+    "related_errors": ["PARTIAL_REFUND_NOT_SUPPORTED"]
+  },
+  {
+    "error_code": "DUPLICATE_REQUEST_ID",
+    "http_status": 409,
+    "category": "merchant_action",
+    "message": "Idempotency key already used",
+    "description": "The unique_request_id has been used for a previous request. Use a new unique value.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Accidental reuse of request_id",
+      "Clock skew causing timestamp collision",
+      "Retry using same idempotency key",
+      "Shared counter across processes"
+    ],
+    "fix_suggestions": [
+      "Generate UUID for each request_id",
+      "Include millisecond timestamp + random suffix",
+      "Use {action}_{uuid} format for clarity",
+      "Store request_id with response for reference"
+    ],
+    "bank_specific": null,
+    "related_errors": ["ORDER_ID_EXISTS"]
+  },
+  {
+    "error_code": "WEBHOOK_SIGNATURE_INVALID",
+    "http_status": 401,
+    "category": "merchant_action",
+    "message": "Webhook signature verification failed",
+    "description": "The X-Juspay-Signature header does not match computed HMAC signature.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Using wrong webhook secret",
+      "Computing signature on parsed JSON instead of raw body",
+      "Character encoding mismatch (UTF-8)",
+      "Missing newline or extra whitespace",
+      "Wrong HMAC algorithm (should be SHA256)"
+    ],
+    "fix_suggestions": [
+      "Get webhook secret from dashboard Settings > Webhooks",
+      "Use raw request body bytes, NOT parsed JSON",
+      "Ensure UTF-8 encoding throughout",
+      "Compare signatures using constant-time comparison",
+      "Test signature locally before deploying"
+    ],
+    "bank_specific": null,
+    "related_errors": ["WEBHOOK_VERIFICATION_FAILED"]
+  },
+  {
+    "error_code": "INTERNAL_SERVER_ERROR",
+    "http_status": 500,
+    "category": "system_error",
+    "message": "Unexpected error occurred on server",
+    "description": "An internal server error occurred. This is typically temporary and should be retried.",
+    "retry_guidance": {
+      "max_retries": 3,
+      "backoff_strategy": "exponential",
+      "initial_delay_seconds": 1,
+      "max_delay_seconds": 30,
+      "cooldown_period_seconds": 120
+    },
+    "common_causes": [
+      "Temporary infrastructure issue",
+      "Database connectivity problem",
+      "Service degradation",
+      "Deployment in progress"
+    ],
+    "fix_suggestions": [
+      "Retry with exponential backoff",
+      "Check status.juspay.in for outages",
+      "Contact support if error persists > 5 minutes",
+      "Implement circuit breaker pattern"
+    ],
+    "bank_specific": null,
+    "related_errors": ["SERVICE_UNAVAILABLE", "BAD_GATEWAY"]
+  },
+  {
+    "error_code": "SERVICE_UNAVAILABLE",
+    "http_status": 503,
+    "category": "retryable",
+    "message": "Service temporarily unavailable",
+    "description": "The service is temporarily unavailable, likely due to maintenance or high load.",
+    "retry_guidance": {
+      "max_retries": 5,
+      "backoff_strategy": "exponential",
+      "initial_delay_seconds": 2,
+      "max_delay_seconds": 60,
+      "cooldown_period_seconds": 300
+    },
+    "common_causes": [
+      "Scheduled maintenance",
+      "Emergency maintenance",
+      "Traffic surge",
+      "Upstream service outage"
+    ],
+    "fix_suggestions": [
+      "Honor Retry-After header",
+      "Notify customers of temporary delay",
+      "Queue requests for later processing",
+      "Monitor status page for updates"
+    ],
+    "bank_specific": null,
+    "related_errors": ["INTERNAL_SERVER_ERROR", "BAD_GATEWAY"]
+  },
+  {
+    "error_code": "REFUND_WINDOW_EXPIRED",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Refund period has expired for this transaction",
+    "description": "The order is beyond the allowed refund window (typically 180 days from charge).",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Transaction too old for automatic refund",
+      "Refund window varies by payment method",
+      "Delayed customer complaint"
+    ],
+    "fix_suggestions": [
+      "Contact support for manual refund processing",
+      "Process offline refund via alternate method",
+      "Check payment method specific refund windows",
+      "Monitor refund eligibility proactively"
+    ],
+    "bank_specific": {
+      "axis": "Card refunds: 180 days, UPI: 90 days",
+      "hdfc": "International card refunds: 120 days"
+    },
+    "related_errors": ["REFUND_NOT_ALLOWED"]
+  },
+  {
+    "error_code": "AMOUNT_PRECISION_ERROR",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Amount has too many decimal places",
+    "description": "Amount must be a whole number without decimal places.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Sending float instead of int",
+      "Currency conversion producing decimals",
+      "Discount calculation errors"
+    ],
+    "fix_suggestions": [
+      "Convert to integer: int(amount * 100)",
+      "Use round() before converting if necessary",
+      "Validate amount is int type in serializer",
+      "Log amount value for debugging"
+    ],
+    "bank_specific": null,
+    "related_errors": ["INVALID_AMOUNT"]
+  },
+  {
+    "error_code": "CUSTOMER_BLOCKED",
+    "http_status": 400,
+    "category": "terminal",
+    "message": "Customer has been blocked from making payments",
+    "description": "This customer account or card has been blocked due to suspicious activity or compliance issues.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Compliance violation",
+      "Suspicious activity pattern",
+      "Customer request to block",
+      "Chargeback abuse"
+    ],
+    "fix_suggestions": [
+      "Do not retry - permanent block",
+      "Contact support for resolution if legitimate",
+      "Request customer use different payment method",
+      "Review transaction history for flags"
+    ],
+    "bank_specific": null,
+    "related_errors": ["CARD_BLOCKED", "MERCHANT_BLOCKED"]
+  },
+  {
+    "error_code": "REQUIRED_FIELD_MISSING",
+    "http_status": 400,
+    "category": "merchant_action",
+    "message": "Required field is missing from request",
+    "description": "One or more mandatory fields were not provided in the request.",
+    "retry_guidance": {
+      "max_retries": 0,
+      "backoff_strategy": "none",
+      "initial_delay_seconds": 0,
+      "max_delay_seconds": 0,
+      "cooldown_period_seconds": null
+    },
+    "common_causes": [
+      "Form validation missed required field",
+      "Null values passed",
+      "Empty string submitted",
+      "Field name typo"
+    ],
+    "fix_suggestions": [
+      "Check error message for which field is missing",
+      "Validate all required fields before API call",
+      "Verify field names match API documentation exactly",
+      "Log request payload for debugging"
+    ],
+    "bank_specific": null,
+    "related_errors": ["INVALID_FIELD_VALUE", "FIELD_TOO_LONG"]
+  }
+]

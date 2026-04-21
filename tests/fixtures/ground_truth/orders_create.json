@@ -1,0 +1,41 @@
+{
+  "method": "POST",
+  "path": "/v1/orders/create",
+  "desc": "Create payment order - FIRST API CALL",
+  "fields": [
+    {
+      "name": "order_id",
+      "type": "string",
+      "req": true
+    },
+    {
+      "name": "amount",
+      "type": "integer",
+      "req": true,
+      "desc": "PAISE - multiply rupees by 100"
+    },
+    {
+      "name": "currency",
+      "type": "string",
+      "req": true,
+      "enum": [
+        "INR"
+      ]
+    },
+    {
+      "name": "customer_email",
+      "type": "string",
+      "req": true
+    },
+    {
+      "name": "return_url",
+      "type": "string",
+      "req": true
+    }
+  ],
+  "errors": [
+    "ORDER_ID_EXISTS",
+    "INVALID_AMOUNT",
+    "INVALID_EMAIL"
+  ]
+}

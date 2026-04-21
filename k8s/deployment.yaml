@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: merchant-mcp-server
+  labels:
+    app: merchant-mcp-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: merchant-mcp-server
+  template:
+    metadata:
+      labels:
+        app: merchant-mcp-server
+    spec:
+      containers:
+      - name: mcp-server
+        image: merchant-mcp:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: mcp-secrets
+              key: database-url
+        - name: LITELLM_LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-secrets
+              key: llm-api-key
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: merchant-mcp-service
+spec:
+  selector:
+    app: merchant-mcp-server
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: merchant-mcp-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - mcp.merchant.example.com
+    secretName: mcp-tls-secret
+  rules:
+  - host: mcp.merchant.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: merchant-mcp-service
+            port:
+              number: 80

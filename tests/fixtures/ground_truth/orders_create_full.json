@@ -1,0 +1,282 @@
+{
+  "endpoint_id": "orders.create",
+  "method": "POST",
+  "path": "/orders",
+  "version": "v1",
+  "description": "Create a new payment order. This is the first API call in any payment flow.",
+  "auth_type": "bearer",
+  "request_schema": {
+    "fields": [
+      {
+        "field_name": "order_id",
+        "json_path": "$..order_id",
+        "field_type": "string",
+        "required": true,
+        "format": null,
+        "constraints": {
+          "min_length": 3,
+          "max_length": 64,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "order_20250115_001",
+        "description": "Unique identifier for the order. Must be unique across all your transactions.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "amount",
+        "json_path": "$..amount",
+        "field_type": "integer",
+        "required": true,
+        "format": null,
+        "constraints": {
+          "min_value": 100,
+          "max_value": 99999999
+        },
+        "valid_values": null,
+        "default": null,
+        "example": 10000,
+        "description": "Amount in smallest currency unit (paise for INR). 10000 = ₹100.00",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "currency",
+        "json_path": "$..currency",
+        "field_type": "string",
+        "required": true,
+        "format": null,
+        "constraints": null,
+        "valid_values": ["INR"],
+        "default": "INR",
+        "example": "INR",
+        "description": "Currency code in ISO 4217 format",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "customer_id",
+        "json_path": "$..customer_id",
+        "field_type": "string",
+        "required": false,
+        "format": null,
+        "constraints": {
+          "max_length": 64
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "cust_12345",
+        "description": "Unique identifier for the customer in your system",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "customer_email",
+        "json_path": "$..customer_email",
+        "field_type": "string",
+        "required": true,
+        "format": "email",
+        "constraints": {
+          "max_length": 255
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "customer@example.com",
+        "description": "Customer email address for payment receipt",
+        "children": null,
+        "item_schema": null,
+        "sensitive": true,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "customer_phone",
+        "json_path": "$..customer_phone",
+        "field_type": "string",
+        "required": false,
+        "format": null,
+        "constraints": {
+          "min_length": 10,
+          "max_length": 15
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "9876543210",
+        "description": "Customer phone number for SMS notifications",
+        "children": null,
+        "item_schema": null,
+        "sensitive": true,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "return_url",
+        "json_path": "$..return_url",
+        "field_type": "string",
+        "required": true,
+        "format": "uri",
+        "constraints": {
+          "max_length": 2048
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "https://yourdomain.com/payment/callback",
+        "description": "URL to redirect customer after payment completion",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "description",
+        "json_path": "$..description",
+        "field_type": "string",
+        "required": false,
+        "format": null,
+        "constraints": {
+          "max_length": 500
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "Payment for Order #12345",
+        "description": "Description shown to customer on payment page",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "metadata",
+        "json_path": "$..metadata",
+        "field_type": "object",
+        "required": false,
+        "format": null,
+        "constraints": null,
+        "valid_values": null,
+        "default": {},
+        "example": {"order_ref": "ORD-123", "source": "mobile_app"},
+        "description": "Custom key-value pairs attached to the order. Max 20 keys.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      }
+    ],
+    "description": "Order creation request payload"
+  },
+  "response_schema": {
+    "fields": [
+      {
+        "field_name": "order_id",
+        "json_path": "$..order_id",
+        "field_type": "string",
+        "required": true,
+        "description": "Same order_id sent in request"
+      },
+      {
+        "field_name": "id",
+        "json_path": "$..id",
+        "field_type": "string",
+        "required": true,
+        "description": "Internal Juspay order ID"
+      },
+      {
+        "field_name": "status",
+        "json_path": "$..status",
+        "field_type": "string",
+        "required": true,
+        "description": "Current order status: CREATED, PENDING, CHARGED, FAILED"
+      },
+      {
+        "field_name": "amount",
+        "json_path": "$..amount",
+        "field_type": "integer",
+        "required": true,
+        "description": "Order amount in paise"
+      },
+      {
+        "field_name": "currency",
+        "json_path": "$..currency",
+        "field_type": "string",
+        "required": true,
+        "description": "Currency code"
+      },
+      {
+        "field_name": "payment_links",
+        "json_path": "$..payment_links",
+        "field_type": "object",
+        "required": false,
+        "description": "URLs for payment page",
+        "children": [
+          {
+            "field_name": "web",
+            "json_path": "$..payment_links.web",
+            "field_type": "string",
+            "required": true,
+            "description": "Payment page URL for web browsers"
+          },
+          {
+            "field_name": "mobile",
+            "json_path": "$..payment_links.mobile",
+            "field_type": "string",
+            "required": false,
+            "description": "Deep link for mobile apps"
+          }
+        ]
+      }
+    ],
+    "description": "Order creation response"
+  },
+  "error_responses": [
+    {
+      "error_code": "ORDER_ID_EXISTS",
+      "http_status": 400,
+      "description": "Order ID already exists. Use a unique order_id."
+    },
+    {
+      "error_code": "INVALID_AMOUNT",
+      "http_status": 400,
+      "description": "Amount must be a positive integer in paise."
+    },
+    {
+      "error_code": "INVALID_EMAIL",
+      "http_status": 400,
+      "description": "Email format is invalid."
+    },
+    {
+      "error_code": "UNAUTHORIZED",
+      "http_status": 401,
+      "description": "API key is invalid or expired."
+    },
+    {
+      "error_code": "RATE_LIMIT_EXCEEDED",
+      "http_status": 429,
+      "description": "Too many requests. Please slow down."
+    }
+  ],
+  "rate_limit": {
+    "requests_per_minute": 100,
+    "burst_allowance": 20
+  },
+  "idempotency": {
+    "required": true,
+    "header_name": "X-Idempotency-Key",
+    "expiration_seconds": 86400,
+    "behavior": "Returns existing response for duplicate keys within 24 hours"
+  },
+  "related_webhooks": ["order.created", "order.charged", "order.failed"],
+  "related_flows": ["payment.standard", "payment.upi", "payment.card"],
+  "code_examples": {
+    "curl": "curl -X POST https://api.juspay.in/orders \\n  -H 'Authorization: Bearer YOUR_API_KEY' \\n  -H 'X-Idempotency-Key: unique-key-123' \\n  -H 'Content-Type: application/json' \\n  -d '{\"order_id\": \"order_123\", \"amount\": 10000, ...}'",
+    "python": "import requests\n\nresponse = requests.post(\n    'https://api.juspay.in/orders',\n    headers={'Authorization': 'Bearer API_KEY'},\n    json={'order_id': 'order_123', 'amount': 10000}\n)"
+  },
+  "sandbox_notes": "Test cards: 4111111111111111 (success), 4000000000009995 (decline). Test UPI: success@upi"
+}

@@ -1,0 +1,93 @@
+[
+  {
+    "code": "ORDER_ID_ALREADY_EXISTS",
+    "status": 400,
+    "category": "merchant_action",
+    "message": "Order ID must be unique",
+    "causes": [
+      "Reusing order_id",
+      "Retry without new ID"
+    ],
+    "fixes": [
+      "Generate new UUID",
+      "Use timestamp prefix"
+    ]
+  },
+  {
+    "code": "INVALID_AMOUNT",
+    "status": 400,
+    "category": "merchant_action",
+    "message": "Amount is invalid",
+    "causes": [
+      "Amount < 100 paise",
+      "Decimal instead of integer"
+    ],
+    "fixes": [
+      "Multiply rupees by 100",
+      "Use integer only"
+    ]
+  },
+  {
+    "code": "INVALID_EMAIL",
+    "status": 400,
+    "category": "merchant_action",
+    "message": "Invalid email format"
+  },
+  {
+    "code": "RETURN_URL_NOT_HTTPS",
+    "status": 400,
+    "category": "merchant_action",
+    "message": "Return URL must use HTTPS"
+  },
+  {
+    "code": "MISSING_REQUIRED_FIELD",
+    "status": 400,
+    "category": "merchant_action"
+  },
+  {
+    "code": "ORDER_NOT_FOUND",
+    "status": 404,
+    "category": "merchant_action",
+    "message": "Order does not exist"
+  },
+  {
+    "code": "PAYMENT_DECLINED",
+    "status": 200,
+    "category": "terminal",
+    "message": "Payment declined by bank",
+    "causes": [
+      "Insufficient funds",
+      "Card blocked",
+      "Wrong CVV"
+    ],
+    "fixes": [
+      "Check balance",
+      "Try different method"
+    ]
+  },
+  {
+    "code": "AUTHENTICATION_FAILED",
+    "status": 200,
+    "category": "terminal",
+    "message": "3D Secure authentication failed"
+  },
+  {
+    "code": "GATEWAY_TIMEOUT",
+    "status": 504,
+    "category": "retryable",
+    "message": "Gateway timeout",
+    "retry": {
+      "max": 3,
+      "backoff": "exponential"
+    }
+  },
+  {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "status": 429,
+    "category": "retryable",
+    "retry": {
+      "max": 5,
+      "backoff": "exponential"
+    }
+  }
+]

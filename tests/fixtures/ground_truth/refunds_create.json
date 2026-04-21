@@ -1,0 +1,21 @@
+{
+  "method": "POST",
+  "path": "/v1/refunds",
+  "desc": "Refund CHARGED order",
+  "fields": [
+    {
+      "name": "order_id",
+      "req": true
+    },
+    {
+      "name": "amount",
+      "req": false,
+      "desc": "Omit for full refund"
+    },
+    {
+      "name": "unique_request_id",
+      "req": true,
+      "desc": "Idempotency key"
+    }
+  ]
+}

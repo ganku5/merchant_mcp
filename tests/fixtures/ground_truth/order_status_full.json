@@ -1,0 +1,192 @@
+{
+  "endpoint_id": "order.status",
+  "method": "GET",
+  "path": "/orders/{order_id}",
+  "version": "v1",
+  "description": "Retrieve the current status and details of an order. Use for polling when webhooks are unavailable.",
+  "auth_type": "bearer",
+  "request_schema": {
+    "fields": [
+      {
+        "field_name": "order_id",
+        "json_path": "$.path.order_id",
+        "field_type": "string",
+        "required": true,
+        "format": null,
+        "constraints": {
+          "min_length": 3,
+          "max_length": 64
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "order_20250115_001",
+        "description": "Order ID from the original create order request",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      }
+    ],
+    "description": "Order status query - order_id is path parameter"
+  },
+  "response_schema": {
+    "fields": [
+      {
+        "field_name": "order_id",
+        "json_path": "$..order_id",
+        "field_type": "string",
+        "required": true,
+        "description": "Same order_id from request"
+      },
+      {
+        "field_name": "id",
+        "json_path": "$..id",
+        "field_type": "string",
+        "required": true,
+        "description": "Internal Juspay order ID"
+      },
+      {
+        "field_name": "status",
+        "json_path": "$..status",
+        "field_type": "string",
+        "required": true,
+        "description": "Current status: CREATED, PAYMENT_INITIATED, AUTHENTICATION_PENDING, AUTHORIZING, CHARGED, FAILED, REFUND_INITIATED, REFUNDED, PARTIALLY_REFUNDED"
+      },
+      {
+        "field_name": "amount",
+        "json_path": "$..amount",
+        "field_type": "integer",
+        "required": true,
+        "description": "Original order amount in paise"
+      },
+      {
+        "field_name": "amount_refunded",
+        "json_path": "$..amount_refunded",
+        "field_type": "integer",
+        "required": false,
+        "description": "Total refunded amount in paise"
+      },
+      {
+        "field_name": "customer_id",
+        "json_path": "$..customer_id",
+        "field_type": "string",
+        "required": false,
+        "description": "Customer ID from order creation"
+      },
+      {
+        "field_name": "customer_email",
+        "json_path": "$..customer_email",
+        "field_type": "string",
+        "required": true,
+        "description": "Customer email"
+      },
+      {
+        "field_name": "created_at",
+        "json_path": "$..created_at",
+        "field_type": "string",
+        "required": true,
+        "description": "Order creation timestamp (ISO 8601)"
+      },
+      {
+        "field_name": "payment",
+        "json_path": "$..payment",
+        "field_type": "object",
+        "required": false,
+        "description": "Payment details if charged",
+        "children": [
+          {
+            "field_name": "id",
+            "json_path": "$..payment.id",
+            "field_type": "string",
+            "required": true,
+            "description": "Payment transaction ID"
+          },
+          {
+            "field_name": "status",
+            "json_path": "$..payment.status",
+            "field_type": "string",
+            "required": true,
+            "description": "Payment status: CAPTURED, FAILED, PENDING"
+          },
+          {
+            "field_name": "payment_method",
+            "json_path": "$..payment.payment_method",
+            "field_type": "string",
+            "required": true,
+            "description": "Payment method used: CARD, UPI, NET_BANKING, WALLET"
+          },
+          {
+            "field_name": "gateway",
+            "json_path": "$..payment.gateway",
+            "field_type": "string",
+            "required": true,
+            "description": "Payment gateway used"
+          },
+          {
+            "field_name": "gateway_reference_id",
+            "json_path": "$..payment.gateway_reference_id",
+            "field_type": "string",
+            "required": false,
+            "description": "Gateway's transaction reference"
+          }
+        ]
+      },
+      {
+        "field_name": "udf1",
+        "json_path": "$..udf1",
+        "field_type": "string",
+        "required": false,
+        "description": "User-defined field 1"
+      },
+      {
+        "field_name": "udf2",
+        "json_path": "$..udf2",
+        "field_type": "string",
+        "required": false,
+        "description": "User-defined field 2"
+      },
+      {
+        "field_name": "udf3",
+        "json_path": "$..udf3",
+        "field_type": "string",
+        "required": false,
+        "description": "User-defined field 3"
+      }
+    ],
+    "description": "Complete order status response"
+  },
+  "error_responses": [
+    {
+      "error_code": "ORDER_NOT_FOUND",
+      "http_status": 404,
+      "description": "Order ID does not exist"
+    },
+    {
+      "error_code": "UNAUTHORIZED",
+      "http_status": 401,
+      "description": "Invalid API key"
+    },
+    {
+      "error_code": "RATE_LIMIT_EXCEEDED",
+      "http_status": 429,
+      "description": "Too many status check requests"
+    }
+  ],
+  "rate_limit": {
+    "requests_per_minute": 300,
+    "burst_allowance": 50
+  },
+  "idempotency": {
+    "required": false,
+    "header_name": null,
+    "expiration_seconds": null,
+    "behavior": "GET requests are naturally idempotent"
+  },
+  "related_webhooks": ["order.charged", "order.failed", "order.refunded"],
+  "related_flows": ["payment.polling", "payment.webhook_fallback"],
+  "code_examples": {
+    "curl": "curl https://api.juspay.in/orders/order_123 \\n  -H 'Authorization: Bearer YOUR_API_KEY'",
+    "python": "import requests\n\nresponse = requests.get(\n    f'https://api.juspay.in/orders/{order_id}',\n    headers={'Authorization': 'Bearer API_KEY'}\n)\nstatus = response.json()['status']"
+  },
+  "sandbox_notes": "Polling interval: 5 seconds recommended, max 300 seconds. Use webhooks for real-time updates."
+}

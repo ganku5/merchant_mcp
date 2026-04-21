@@ -1,0 +1,210 @@
+{
+  "endpoint_id": "refund.create",
+  "method": "POST",
+  "path": "/refunds",
+  "version": "v1",
+  "description": "Create a refund for a successfully charged order. Supports partial and full refunds.",
+  "auth_type": "bearer",
+  "request_schema": {
+    "fields": [
+      {
+        "field_name": "order_id",
+        "json_path": "$..order_id",
+        "field_type": "string",
+        "required": true,
+        "format": null,
+        "constraints": {
+          "min_length": 3,
+          "max_length": 64
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "order_20250115_001",
+        "description": "Order ID of the transaction to refund. Must be in CHARGED status.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "amount",
+        "json_path": "$..amount",
+        "field_type": "integer",
+        "required": false,
+        "format": null,
+        "constraints": {
+          "min_value": 1
+        },
+        "valid_values": null,
+        "default": null,
+        "example": 5000,
+        "description": "Refund amount in paise. If omitted, full order amount is refunded. Cannot exceed original order amount.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "unique_request_id",
+        "json_path": "$..unique_request_id",
+        "field_type": "string",
+        "required": true,
+        "format": null,
+        "constraints": {
+          "min_length": 10,
+          "max_length": 64,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "refund_req_20250115_001",
+        "description": "Unique identifier for idempotency. Same request_id returns same response. Required for refund safety.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "refund_reason",
+        "json_path": "$..refund_reason",
+        "field_type": "string",
+        "required": false,
+        "format": null,
+        "constraints": {
+          "max_length": 200
+        },
+        "valid_values": null,
+        "default": null,
+        "example": "Customer request",
+        "description": "Reason for refund. Appears in reports and may be visible to customer depending on gateway.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": null
+      },
+      {
+        "field_name": "refund_type",
+        "json_path": "$..refund_type",
+        "field_type": "string",
+        "required": false,
+        "format": null,
+        "constraints": null,
+        "valid_values": ["STANDARD", "INSTANT"],
+        "default": "STANDARD",
+        "example": "STANDARD",
+        "description": "Refund processing type. INSTANT uses pre-funded balance for immediate credit.",
+        "children": null,
+        "item_schema": null,
+        "sensitive": false,
+        "bank_specific_notes": {
+          "axis": "INSTANT refund requires pre-funded account",
+          "hdfc": "Standard refunds settle in T+2 to T+5 days"
+        }
+      }
+    ],
+    "description": "Refund creation request"
+  },
+  "response_schema": {
+    "fields": [
+      {
+        "field_name": "refund_id",
+        "json_path": "$..refund_id",
+        "field_type": "string",
+        "required": true,
+        "description": "Unique refund identifier"
+      },
+      {
+        "field_name": "order_id",
+        "json_path": "$..order_id",
+        "field_type": "string",
+        "required": true,
+        "description": "Original order ID"
+      },
+      {
+        "field_name": "amount",
+        "json_path": "$..amount",
+        "field_type": "integer",
+        "required": true,
+        "description": "Refunded amount in paise"
+      },
+      {
+        "field_name": "status",
+        "json_path": "$..status",
+        "field_type": "string",
+        "required": true,
+        "description": "Refund status: PENDING, SUCCESS, FAILURE, MANUAL_REVIEW"
+      },
+      {
+        "field_name": "unique_request_id",
+        "json_path": "$..unique_request_id",
+        "field_type": "string",
+        "required": true,
+        "description": "Echo of request idempotency key"
+      },
+      {
+        "field_name": "created_at",
+        "json_path": "$..created_at",
+        "field_type": "string",
+        "required": true,
+        "description": "Refund creation timestamp (ISO 8601)"
+      },
+      {
+        "field_name": "expected_credit_date",
+        "json_path": "$..expected_credit_date",
+        "field_type": "string",
+        "required": false,
+        "description": "Estimated date for funds to reach customer account"
+      }
+    ],
+    "description": "Refund creation response"
+  },
+  "error_responses": [
+    {
+      "error_code": "ORDER_NOT_CHARGED",
+      "http_status": 400,
+      "description": "Order is not in CHARGED status. Cannot refund uncharged orders."
+    },
+    {
+      "error_code": "INVALID_REFUND_AMOUNT",
+      "http_status": 400,
+      "description": "Refund amount exceeds available balance or order amount."
+    },
+    {
+      "error_code": "DUPLICATE_REQUEST_ID",
+      "http_status": 409,
+      "description": "unique_request_id already used. Use a new request ID."
+    },
+    {
+      "error_code": "REFUND_WINDOW_EXPIRED",
+      "http_status": 400,
+      "description": "Refund period has expired. Contact support for manual processing."
+    },
+    {
+      "error_code": "INSUFFICIENT_BALANCE",
+      "http_status": 400,
+      "description": "Merchant settlement balance insufficient for instant refund."
+    },
+    {
+      "error_code": "UNAUTHORIZED",
+      "http_status": 401,
+      "description": "Invalid API key"
+    }
+  ],
+  "rate_limit": {
+    "requests_per_minute": 50,
+    "burst_allowance": 10
+  },
+  "idempotency": {
+    "required": true,
+    "header_name": "unique_request_id",
+    "expiration_seconds": 604800,
+    "behavior": "7-day deduplication on unique_request_id field in body. Returns same refund_id for duplicate requests."
+  },
+  "related_webhooks": ["refund.created", "refund.processed", "refund.failed"],
+  "related_flows": ["refund.full", "refund.partial", "refund.instant"],
+  "code_examples": {
+    "curl": "curl -X POST https://api.juspay.in/refunds \\n  -H 'Authorization: Bearer YOUR_API_KEY' \\n  -H 'Content-Type: application/json' \\n  -d '{\"order_id\": \"order_123\", \"amount\": 5000, \"unique_request_id\": \"refund_req_001\"}'",
+    "python": "import requests\n\nresponse = requests.post(\n    'https://api.juspay.in/refunds',\n    headers={'Authorization': 'Bearer API_KEY'},\n    json={\n        'order_id': 'order_123',\n        'amount': 5000,\n        'unique_request_id': f'refund_{datetime.now().timestamp()}'\n    }\n)"
+  },
+  "sandbox_notes": "Test refunds process instantly in sandbox. Status moves from PENDING to SUCCESS within 5 seconds. Use unique_request_id format: test_refund_timestamp"
+}

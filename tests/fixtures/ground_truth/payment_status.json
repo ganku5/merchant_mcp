@@ -1,0 +1,16 @@
+{
+  "method": "GET",
+  "path": "/v1/orders/{order_id}",
+  "desc": "Check status - USE FOR POLLING",
+  "fields": [
+    {
+      "name": "order_id",
+      "in": "path",
+      "req": true
+    }
+  ],
+  "poll": {
+    "interval": 5,
+    "max": 300
+  }
+}
