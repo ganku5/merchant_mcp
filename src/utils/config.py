@@ -56,6 +56,8 @@ class Config:
                             cls.LITELLM_LLM_API_KEY = value
                         elif key == "LITELLM_EMBEDDING_API_BASE":
                             cls.LITELLM_EMBEDDING_API_BASE = value
+                        elif key == "LITELLM_EMBEDDING_API_KEY":
+                            cls.LITELLM_EMBEDDING_API_KEY = value
                         elif key == "MCP_PORT":
                             cls.MCP_PORT = int(value)
                         elif key == "DB_HOST":
