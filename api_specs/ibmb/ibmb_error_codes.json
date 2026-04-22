@@ -1,0 +1,154 @@
+[
+  {
+    "error_code": "IBMB001",
+    "description": "Request json object is not in standard format"
+  },
+  {
+    "error_code": "IBMB002",
+    "description": "Request is invalid"
+  },
+  {
+    "error_code": "IBMB003",
+    "description": "Reference ID is not sent"
+  },
+  {
+    "error_code": "IBMB004",
+    "description": "Request is not found"
+  },
+  {
+    "error_code": "IBMB005",
+    "description": "Request is failed in Validation"
+  },
+  {
+    "error_code": "IBMB006",
+    "description": "Exception found"
+  },
+  {
+    "error_code": "IBMB007",
+    "description": "Response object is null and it must be present"
+  },
+  {
+    "error_code": "IBMB008",
+    "description": "Requested HEAD timestamp is not within accepted tolerance"
+  },
+  {
+    "error_code": "IBMB009",
+    "description": "RequestBody is null or Empty"
+  },
+  {
+    "error_code": "IBMB010",
+    "description": "Duplicate request found"
+  },
+  {
+    "error_code": "IBMB011",
+    "description": "ReferenceID sent mismatch with the txn refID"
+  },
+  {
+    "error_code": "IBMB012",
+    "description": "No transaction found for particular refID/mode mismatch"
+  },
+  {
+    "error_code": "IBMB013",
+    "description": "Reference ID mismatch in the request and urn"
+  },
+  {
+    "error_code": "IBMB014",
+    "description": "Duplicates found for same refID in keyDB/cache for RequestType FETCH"
+  },
+  {
+    "error_code": "IBMB015",
+    "description": "Unexpected error thrown"
+  },
+  {
+    "error_code": "IBMB016",
+    "description": "Head Ts is a future date, invalid"
+  },
+  {
+    "error_code": "IBMB017",
+    "description": "Reference ID mismatch in the response and request"
+  },
+  {
+    "error_code": "IBMB018",
+    "description": "Reference ID mismatch in the request refID was not part of reqTxnInit"
+  },
+  {
+    "error_code": "IBMB019",
+    "description": "Duplicate TxnId found"
+  },
+  {
+    "error_code": "IBMB020",
+    "description": "Requested Transaction is not found and might be under processing"
+  },
+  {
+    "error_code": "IBMB021",
+    "description": "Duplicate Request since RefID is already exist"
+  },
+  {
+    "error_code": "IBMB022",
+    "description": "TxnID is not unique"
+  },
+  {
+    "error_code": "IBMB023",
+    "description": "RefID is not unique"
+  },
+  {
+    "error_code": "IBMB024",
+    "description": "A success response has already been found for the given referenceID"
+  },
+  {
+    "error_code": "IBMB025",
+    "description": "Cannot process request - already successful txn with the same RefID"
+  },
+  {
+    "error_code": "IBMB026",
+    "description": "Cannot process request - already successful txn with the same txnID"
+  },
+  {
+    "error_code": "IBMB027",
+    "description": "Cannot process request - already failed txn with the same txnID"
+  },
+  {
+    "error_code": "IBMB028",
+    "description": "Cannot process request - already failed txn with the same refID"
+  },
+  {
+    "error_code": "IBMB029",
+    "description": "Suspected fraud, decline / transactions declined based on risk score"
+  },
+  {
+    "error_code": "IBMB030",
+    "description": "Blacklisted Merchant"
+  },
+  {
+    "error_code": "IBMB031",
+    "description": "Blacklisted MCC"
+  },
+  {
+    "error_code": "IBMB032",
+    "description": "Blacklisted entity"
+  },
+  {
+    "error_code": "IBMB033",
+    "description": "Txn Ts is a future date, invalid"
+  },
+  {
+    "error_code": "IBMB034",
+    "description": "Exception occurred while processing request"
+  },
+  {
+    "error_code": "IBMB035",
+    "description": "Invalid timeStamp format"
+  },
+  {
+    "error_code": "IBMB036",
+    "description": "ReqPay Failure Response send to Bank"
+  },
+  {
+    "error_code": "IBMB037",
+    "description": "No Transaction details found. Please wait till timeout period"
+  },
+  {
+    "error_code": "IBMB038",
+    "description": "Transaction Timed-out"
+  }
+]

@@ -1,0 +1,271 @@
+{
+  "endpoint_id": "ibmb.merchant.transaction.status",
+  "method": "POST",
+  "path": "/api/merchants/v1/transaction/status",
+  "api_version": "v1",
+  "description": "Retrieve the most recent status of the transaction. Used in event of timeout during transaction processing.",
+  "summary": "Check transaction status",
+  "headers": {
+    "request": [
+      {
+        "name": "Content-Type",
+        "required": true,
+        "description": "Must be application/json",
+        "example_value": "application/json"
+      },
+      {
+        "name": "Accept",
+        "required": true,
+        "description": "Must be application/json",
+        "example_value": "application/json"
+      },
+      {
+        "name": "x-session-id",
+        "required": true,
+        "description": "A unique UUID for the session, helpful for tracing and debugging"
+      },
+      {
+        "name": "x-trace-id",
+        "required": true,
+        "description": "A unique UUID for the request, helpful for tracing and debugging"
+      },
+      {
+        "name": "x-timestamp",
+        "required": true,
+        "description": "Epoch unix timestamp in milliseconds string for request initiation",
+        "example_value": "1496918882000"
+      },
+      {
+        "name": "x-merchant-id",
+        "required": true,
+        "description": "Merchant identifier"
+      },
+      {
+        "name": "x-merchant-channel-id",
+        "required": true,
+        "description": "Merchant Channel Identifier"
+      }
+    ],
+    "response": [
+      {
+        "name": "Content-Type",
+        "required": true,
+        "description": "Will be application/json"
+      }
+    ]
+  },
+  "request_fields": [
+    {
+      "parent_path": "",
+      "field_name": "requestId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "A unique id for the request"
+    },
+    {
+      "parent_path": "",
+      "field_name": "requestTs",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Timestamp of the request"
+    },
+    {
+      "parent_path": "",
+      "field_name": "merchantRequestId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Reference ID of the transaction"
+    }
+  ],
+  "response_fields": [
+    {
+      "parent_path": "",
+      "field_name": "requestId",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "",
+      "field_name": "result",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "constraints": {
+        "enum": [
+          "SUCCESS",
+          "FAILURE"
+        ]
+      }
+    },
+    {
+      "parent_path": "",
+      "field_name": "responseCode",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "",
+      "field_name": "responseMessage",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "",
+      "field_name": "payload",
+      "field_type": "object",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "merchantRequestId",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "txnStatus",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "constraints": {
+        "enum": [
+          "SUCCESS",
+          "FAILURE",
+          "PENDING"
+        ]
+      },
+      "description": "Status of the transaction"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "txnResponseCode",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Transaction response code"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "txnResponseMessage",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Transaction response message"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "amount",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "initiationMode",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "currency",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "transactionId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Issuing transaction Id"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "type",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "constraints": {
+        "enum": [
+          "TXN_STATUS"
+        ]
+      },
+      "description": "Type of the request"
+    },
+    {
+      "parent_path": "payload",
+      "field_name": "riskScore",
+      "field_type": "string",
+      "requirement": "optional",
+      "description": "Risk score"
+    }
+  ],
+  "conditions": [],
+  "samples": [
+    {
+      "sample_name": "status_check_pending",
+      "description": "Transaction still pending",
+      "scenario": "pending_status",
+      "request": {
+        "headers": [
+          {
+            "name": "Content-Type",
+            "required": true,
+            "description": "Must be application/json",
+            "example_value": "application/json"
+          },
+          {
+            "name": "Accept",
+            "required": true,
+            "description": "Must be application/json",
+            "example_value": "application/json"
+          },
+          {
+            "name": "x-session-id",
+            "required": true,
+            "description": "A unique UUID for the session, helpful for tracing and debugging"
+          },
+          {
+            "name": "x-trace-id",
+            "required": true,
+            "description": "A unique UUID for the request, helpful for tracing and debugging"
+          },
+          {
+            "name": "x-timestamp",
+            "required": true,
+            "description": "Epoch unix timestamp in milliseconds string for request initiation",
+            "example_value": "1496918882000"
+          },
+          {
+            "name": "x-merchant-id",
+            "required": true,
+            "description": "Merchant identifier"
+          },
+          {
+            "name": "x-merchant-channel-id",
+            "required": true,
+            "description": "Merchant Channel Identifier"
+          }
+        ],
+        "body": {
+          "requestId": "status-req-001",
+          "requestTs": "1496918882000",
+          "merchantRequestId": "20240901234ABCDE5678"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "body": {
+          "requestId": "status-req-001",
+          "result": "SUCCESS",
+          "responseCode": "SUCCESS",
+          "responseMessage": "Status retrieved",
+          "payload": {
+            "merchantRequestId": "20240901234ABCDE5678",
+            "txnStatus": "PENDING",
+            "txnResponseCode": "PENDING",
+            "txnResponseMessage": "Transaction is being processed",
+            "amount": "1000.00",
+            "initiationMode": "INTENT",
+            "currency": "INR",
+            "transactionId": "TXNBANK987654321",
+            "type": "TXN_STATUS"
+          }
+        }
+      }
+    }
+  ]
+}

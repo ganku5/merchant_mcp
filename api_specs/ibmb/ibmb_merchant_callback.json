@@ -1,0 +1,143 @@
+{
+  "endpoint_id": "ibmb.merchant.callback",
+  "method": "POST",
+  "path": "{{merchant_callback_url}}",
+  "api_version": "v1",
+  "description": "Callback initiated by backend to merchant server when there is a status update from the NBBL switch. Requires merchant to provide callback URL.",
+  "summary": "Transaction status callback webhook",
+  "headers": {
+    "request": [
+      {
+        "name": "Content-Type",
+        "required": true,
+        "description": "Will be application/json"
+      },
+      {
+        "name": "X-Callback-Signature",
+        "required": true,
+        "description": "HMAC signature for webhook verification"
+      }
+    ],
+    "response": []
+  },
+  "request_fields": [
+    {
+      "parent_path": "",
+      "field_name": "merchantRequestId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Reference ID of the transaction"
+    },
+    {
+      "parent_path": "",
+      "field_name": "status",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "constraints": {
+        "enum": [
+          "SUCCESS",
+          "FAILURE",
+          "PENDING"
+        ]
+      },
+      "description": "Status of the transaction"
+    },
+    {
+      "parent_path": "",
+      "field_name": "responseCode",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Transaction response code"
+    },
+    {
+      "parent_path": "",
+      "field_name": "responseMessage",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Transaction response message"
+    },
+    {
+      "parent_path": "",
+      "field_name": "amount",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "",
+      "field_name": "initiationMode",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "",
+      "field_name": "currency",
+      "field_type": "string",
+      "requirement": "mandatory"
+    },
+    {
+      "parent_path": "",
+      "field_name": "transactionId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Issuing transaction Id"
+    },
+    {
+      "parent_path": "",
+      "field_name": "type",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "constraints": {
+        "enum": [
+          "TXN_STATUS"
+        ]
+      },
+      "description": "Type of the callback"
+    },
+    {
+      "parent_path": "",
+      "field_name": "riskScore",
+      "field_type": "string",
+      "requirement": "optional"
+    }
+  ],
+  "response_fields": [
+    {
+      "parent_path": "",
+      "field_name": "acknowledged",
+      "field_type": "boolean",
+      "requirement": "mandatory",
+      "description": "Whether callback was acknowledged"
+    }
+  ],
+  "samples": [
+    {
+      "sample_name": "callback_success",
+      "description": "Transaction completed successfully",
+      "scenario": "success_callback",
+      "request": {
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Callback-Signature": "sha256=abc123..."
+        },
+        "body": {
+          "merchantRequestId": "20240901234ABCDE5678",
+          "status": "SUCCESS",
+          "responseCode": "TXN_SUCCESS",
+          "responseMessage": "Transaction completed successfully",
+          "amount": "1000.00",
+          "initiationMode": "INTENT",
+          "currency": "INR",
+          "transactionId": "TXNBANK987654321",
+          "type": "TXN_STATUS",
+          "riskScore": "LOW"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "body": {
+          "acknowledged": true
+        }
+      }
+    }
+  ]
+}

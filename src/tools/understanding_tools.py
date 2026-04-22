@@ -7,25 +7,64 @@ from ..utils.database import database
 from ..utils.llm import llm_client
 
 
-async def get_api_spec(endpoint_id: str, version: str = "v1") -> dict:
+async def get_api_spec(endpoint_id: str, version: str = "v1", include_samples: bool = True) -> dict:
     """Get complete API specification for an endpoint.
     
     Args:
-        endpoint_id: Unique endpoint identifier (e.g., 'orders.create')
+        endpoint_id: Unique endpoint identifier (e.g., 'ibmb.merchant.transaction.init')
         version: API version (default: v1)
+        include_samples: Whether to include request/response samples (v2 APIs only)
     
     Returns:
-        Complete endpoint specification with fields, schemas, examples
+        Complete endpoint specification with fields, schemas, headers, and examples
     """
     # Ensure database is connected
     if database._pool is None:
         await database.connect()
     
+    conn = database.pool
+    
+    # First try v2 API specs (richer format with headers, samples, conditions)
+    try:
+        async with conn.acquire() as db_conn:
+            # Query with endpoint_id and optionally api_version
+            spec_row = await db_conn.fetchrow("""
+                SELECT * FROM api_specs_v2 
+                WHERE endpoint_id = $1 AND api_version = $2
+            """, endpoint_id, version)
+            
+            # If not found with specific version, try without version constraint
+            if not spec_row:
+                spec_row = await db_conn.fetchrow("""
+                    SELECT * FROM api_specs_v2 
+                    WHERE endpoint_id = $1
+                    ORDER BY api_version DESC
+                    LIMIT 1
+                """, endpoint_id)
+            
+            if spec_row:
+                return await _get_api_spec_v2(db_conn, spec_row, include_samples)
+    except Exception:
+        # V2 tables might not exist, fall back to legacy
+        pass
+    
+    # Fall back to legacy endpoint_specs table
     spec = await database.get_endpoint_spec(endpoint_id)
     
     if not spec:
+        # Try to list available endpoints from both tables
         available = await database.list_endpoints()
         available_list = "\n".join([f"  • {e['endpoint_id']} - {e['description']}" for e in available[:10]])
+        
+        # Also check v2 APIs
+        try:
+            async with conn.acquire() as db_conn:
+                v2_specs = await db_conn.fetch("SELECT endpoint_id FROM api_specs_v2 LIMIT 10")
+                if v2_specs:
+                    v2_list = "\n".join([f"  • {s['endpoint_id']}" for s in v2_specs])
+                    available_list = v2_list + "\n" + available_list
+        except:
+            pass
         
         return {
             "content": [{
@@ -35,6 +74,195 @@ async def get_api_spec(endpoint_id: str, version: str = "v1") -> dict:
             "isError": True
         }
     
+    # Return legacy format response
+    return await _get_api_spec_legacy(spec, endpoint_id, version)
+
+
+async def _get_api_spec_v2(db_conn, spec_row, include_samples: bool) -> dict:
+    """Get API spec from v2 format (richer data)."""
+    import json
+    
+    spec_id = spec_row['spec_id']
+    endpoint_id = spec_row['endpoint_id']
+    
+    # Build sections
+    sections = [
+        f"# API Specification: {endpoint_id}",
+        f"\n**Method:** {spec_row['method']}",
+        f"**Path:** {spec_row['path']}",
+        f"**Version:** {spec_row['api_version']}",
+    ]
+    
+    if spec_row['summary']:
+        sections.append(f"**Summary:** {spec_row['summary']}")
+    
+    sections.append(f"\n## Description\n{spec_row['description'] or 'No description'}")
+    
+    # Get headers
+    headers = await db_conn.fetch("""
+        SELECT * FROM api_headers WHERE spec_id = $1 ORDER BY header_type, name
+    """, spec_id)
+    
+    if headers:
+        sections.append("\n## Headers")
+        current_type = None
+        for h in headers:
+            if h['header_type'] != current_type:
+                current_type = h['header_type']
+                sections.append(f"\n### {current_type.title()} Headers")
+            
+            req_marker = "*" if h['required'] else ""
+            cond_note = f" [{h['conditional_when']}]" if h['conditional_when'] else ""
+            sections.append(f"- **{h['name']}**{req_marker}{cond_note}")
+            if h['description']:
+                sections.append(f"  - {h['description']}")
+            if h['example_value']:
+                sections.append(f"  - Example: `{h['example_value']}`")
+            if h['pattern']:
+                sections.append(f"  - Pattern: `{h['pattern']}`")
+    
+    # Get fields (build tree)
+    async def get_fields(context: str):
+        rows = await db_conn.fetch("""
+            SELECT * FROM api_fields 
+            WHERE spec_id = $1 AND context = $2
+            ORDER BY parent_path, display_order
+        """, spec_id, context)
+        return [dict(r) for r in rows]
+    
+    def format_field_tree(fields, parent='', indent=0):
+        result = []
+        prefix = "  " * indent
+        
+        for f in fields:
+            field_parent = f.get('parent_path', '')
+            if field_parent == parent:
+                req = f.get('requirement', 'optional')
+                req_marker = {"mandatory": "*", "optional": "", "conditional": "†"}.get(req, "")
+                
+                field_type = f.get('field_type', 'unknown')
+                if f.get('subtype'):
+                    field_type += f"<{f['subtype']}>"
+                
+                cond_note = ""
+                if req == 'conditional' and f.get('condition_description'):
+                    cond_note = f" [{f['condition_description']}]"
+                
+                line = f"{prefix}- **{f['field_name']}**{req_marker} (`{field_type}`){cond_note}"
+                result.append(line)
+                
+                if f.get('description'):
+                    result.append(f"{prefix}  - {f['description']}")
+                
+                # Constraints
+                constraints = f.get('constraints', {})
+                if isinstance(constraints, str):
+                    try:
+                        constraints = json.loads(constraints)
+                    except:
+                        constraints = {}
+                if constraints:
+                    cons_list = []
+                    if constraints.get('pattern'): cons_list.append(f"pattern: {constraints['pattern']}")
+                    if constraints.get('minLength'): cons_list.append(f"min: {constraints['minLength']}")
+                    if constraints.get('maxLength'): cons_list.append(f"max: {constraints['maxLength']}")
+                    if constraints.get('enum'): cons_list.append(f"enum: {constraints['enum']}")
+                    if cons_list:
+                        result.append(f"{prefix}  - Constraints: {', '.join(cons_list)}")
+                
+                # Recurse into children
+                full_path = f.get('full_path', f['field_name'])
+                result.extend(format_field_tree(fields, full_path, indent + 1))
+        
+        return result
+    
+    # Request schema
+    request_fields = await get_fields('request')
+    if request_fields:
+        sections.append("\n## Request Schema")
+        sections.append("\nLegend: `*` = Mandatory, `†` = Conditional")
+        sections.extend(format_field_tree(request_fields))
+    
+    # Response schema
+    response_fields = await get_fields('response')
+    if response_fields:
+        sections.append("\n## Response Schema")
+        sections.extend(format_field_tree(response_fields))
+    
+    # Get conditions
+    conditions = await db_conn.fetch("""
+        SELECT * FROM api_conditions WHERE spec_id = $1
+    """, spec_id)
+    
+    if conditions:
+        sections.append("\n## Conditional Logic")
+        for c in conditions:
+            sections.append(f"\n### {c['condition_name']}")
+            sections.append(f"- Expression: `{c['expression']}`")
+            if c['description']:
+                sections.append(f"- Description: {c['description']}")
+    
+    # Rate limits
+    rate_limit_raw = spec_row.get('rate_limit', '{}')
+    try:
+        rate_limit = rate_limit_raw if isinstance(rate_limit_raw, dict) else json.loads(rate_limit_raw)
+    except:
+        rate_limit = {}
+    if rate_limit and isinstance(rate_limit, dict):
+        sections.append("\n## Rate Limits")
+        for key, value in rate_limit.items():
+            sections.append(f"- {key.replace('_', ' ').title()}: {value}")
+    
+    # Get samples if requested
+    if include_samples:
+        samples = await db_conn.fetch("""
+            SELECT * FROM api_samples WHERE spec_id = $1
+        """, spec_id)
+        
+        if samples:
+            sections.append("\n## Examples")
+            for s in samples:
+                sections.append(f"\n### {s['sample_name']}")
+                if s['description']:
+                    sections.append(f"*{s['description']}*")
+                
+                req_raw = s.get('request', '{}')
+                try:
+                    req = req_raw if isinstance(req_raw, dict) else json.loads(req_raw)
+                except:
+                    req = {}
+                if req and req.get('body'):
+                    sections.append(f"\n**Request:**")
+                    if req.get('headers'):
+                        sections.append("Headers:")
+                        for hk, hv in req['headers'].items():
+                            sections.append(f"  {hk}: {hv}")
+                    sections.append(f"```json\n{json.dumps(req['body'], indent=2)}\n```")
+                
+                resp_raw = s.get('response', '{}')
+                try:
+                    resp = resp_raw if isinstance(resp_raw, dict) else json.loads(resp_raw)
+                except:
+                    resp = {}
+                if resp and resp.get('body'):
+                    sections.append(f"\n**Response ({resp.get('status_code', 200)}):**")
+                    sections.append(f"```json\n{json.dumps(resp['body'], indent=2)}\n```")
+                
+                if s.get('curl_command'):
+                    sections.append(f"\n**cURL:**")
+                    sections.append(f"```bash\n{s['curl_command']}\n```")
+    
+    return {
+        "content": [{
+            "type": "text",
+            "text": "\n".join(sections)
+        }],
+        "isError": False
+    }
+
+
+async def _get_api_spec_legacy(spec, endpoint_id: str, version: str) -> dict:
+    """Get API spec from legacy format."""
     # Build comprehensive response
     sections = [
         f"# API Specification: {endpoint_id}",
@@ -51,8 +279,23 @@ async def get_api_spec(endpoint_id: str, version: str = "v1") -> dict:
         sections.append("\n## Request Schema")
         
         fields = req.get('fields', [])
-        required = [f for f in fields if f.get('required')]
-        optional = [f for f in fields if not f.get('required')]
+        # Normalize field names (support both 'name'/'type' and 'field_name'/'field_type')
+        normalized_fields = []
+        for f in fields:
+            nf = {
+                'field_name': f.get('field_name') or f.get('name', 'unknown'),
+                'field_type': f.get('field_type') or f.get('type', 'unknown'),
+                'required': f.get('required', False),
+                'description': f.get('description', ''),
+                'example': f.get('example'),
+                'default': f.get('default'),
+                'valid_values': f.get('valid_values'),
+                'constraints': f.get('constraints', {})
+            }
+            normalized_fields.append(nf)
+        
+        required = [f for f in normalized_fields if f['required']]
+        optional = [f for f in normalized_fields if not f['required']]
         
         if required:
             sections.append("\n### Required Fields")
@@ -89,13 +332,21 @@ async def get_api_spec(endpoint_id: str, version: str = "v1") -> dict:
         resp = spec['response_schema']
         sections.append("\n## Response Schema")
         for f in resp.get('fields', []):
-            sections.append(f"- **{f['field_name']}** (`{f['field_type']}`) - {f.get('description', 'No description')}")
+            field_name = f.get('field_name') or f.get('name', 'unknown')
+            field_type = f.get('field_type') or f.get('type', 'unknown')
+            desc = f.get('description', 'No description')
+            sections.append(f"- **{field_name}** (`{field_type}`) - {desc}")
     
     # Error responses
-    if spec.get('error_responses'):
+    error_responses = spec.get('error_responses') or spec.get('errors', [])
+    if error_responses:
         sections.append("\n## Error Responses")
-        for err in spec['error_responses']:
-            sections.append(f"- **{err['error_code']}** (HTTP {err['http_status']}) - {err['description']}")
+        for err in error_responses:
+            if isinstance(err, dict):
+                error_code = err.get('error_code') or err.get('code', 'UNKNOWN')
+                http_status = err.get('http_status', err.get('status', 'N/A'))
+                desc = err.get('description', err.get('message', 'No description'))
+                sections.append(f"- **{error_code}** (HTTP {http_status}) - {desc}")
     
     # Rate limits
     if spec.get('rate_limit'):
@@ -124,7 +375,8 @@ async def get_api_spec(endpoint_id: str, version: str = "v1") -> dict:
         "content": [{
             "type": "text",
             "text": "\n".join(sections)
-        }]
+        }],
+        "isError": False
     }
 
 

@@ -1,0 +1,100 @@
+{
+  "endpoint_id": "ibmb.axis.sdk.status",
+  "method": "POST",
+  "path": "/api/sdk/v1/status",
+  "api_version": "v1",
+  "description": "Check transaction status (SDK Flow). Retrieves current status of transaction.",
+  "summary": "Check transaction status",
+  "headers": {
+    "request": [
+      {
+        "name": "Content-Type",
+        "required": true,
+        "description": "Must be application/json",
+        "example_value": "application/json"
+      },
+      {
+        "name": "Accept",
+        "required": true,
+        "description": "Must be application/json",
+        "example_value": "application/json"
+      },
+      {
+        "name": "x-session-id",
+        "required": true,
+        "description": "A unique UUID for the session, helpful for tracing and debugging",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      },
+      {
+        "name": "x-request-id",
+        "required": true,
+        "description": "A unique UUID for the request, helpful for tracing and debugging",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+      },
+      {
+        "name": "x-timestamp",
+        "required": true,
+        "description": "Epoch unix timestamp in milliseconds string for request initiation",
+        "example_value": "1496918882000",
+        "pattern": "^\\d{13}$"
+      }
+    ],
+    "response": [
+      {
+        "name": "Content-Type",
+        "required": true,
+        "description": "Will be application/json",
+        "example_value": "application/json"
+      }
+    ]
+  },
+  "request_fields": [
+    {
+      "parent_path": "",
+      "field_name": "requestId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Unique request ID"
+    },
+    {
+      "parent_path": "",
+      "field_name": "refId",
+      "field_type": "string",
+      "requirement": "conditional",
+      "condition_description": "Required if txnId not provided",
+      "description": "Reference ID"
+    },
+    {
+      "parent_path": "",
+      "field_name": "txnId",
+      "field_type": "string",
+      "requirement": "conditional",
+      "condition_description": "Required if refId not provided",
+      "description": "Transaction ID"
+    }
+  ],
+  "response_fields": [
+    {
+      "parent_path": "",
+      "field_name": "result",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Result status"
+    },
+    {
+      "parent_path": "",
+      "field_name": "txnId",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Transaction ID"
+    },
+    {
+      "parent_path": "",
+      "field_name": "status",
+      "field_type": "string",
+      "requirement": "mandatory",
+      "description": "Transaction status"
+    }
+  ],
+  "samples": []
+}
