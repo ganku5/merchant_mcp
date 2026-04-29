@@ -83,34 +83,96 @@ def search_docs(query: str) -> str:
     return _extract(_run_async(fn(query, 5, None)))
 
 
-# ===== Building Tools =====
+# ===== Building Tools (Enhanced) =====
 
 @mcp.tool()
-def generate_payload(endpoint_id: str) -> str:
-    """Generate payload for an endpoint."""
-    from src.tools.building_tools import generate_payload as fn
-    return _extract(_run_async(fn(endpoint_id, {}, False)))
+def generate_payload(
+    endpoint_id: str,
+    include_optional: bool = False,
+    include_conditional: bool = False,
+    output_format: str = "json"
+) -> str:
+    """Generate intelligent payload for an endpoint with smart defaults.
+    
+    Args:
+        endpoint_id: API endpoint identifier (e.g., 'ibmb.merchant.transaction.init')
+        include_optional: Include optional fields in payload
+        include_conditional: Include conditional fields
+        output_format: Output format - 'json', 'python', 'nodejs', 'java'
+    
+    Returns:
+        Generated payload with field explanations and smart defaults
+    """
+    from src.tools.enhanced_building_tools import generate_enhanced_payload as fn
+    return _extract(_run_async(fn(endpoint_id, include_optional, include_conditional, output_format)))
 
 
 @mcp.tool()
-def get_code_example(endpoint_id: str, language: str) -> str:
-    """Get code example."""
-    from src.tools.building_tools import get_code_example as fn
-    return _extract(_run_async(fn(endpoint_id, language)))
+def get_code_example(
+    endpoint_id: str,
+    language: str,
+    include_comments: bool = True,
+    include_error_handling: bool = True,
+    include_tests: bool = False
+) -> str:
+    """Generate production-ready SDK code with authentication and error handling.
+    
+    Args:
+        endpoint_id: API endpoint identifier
+        language: Programming language - 'python', 'nodejs', 'java', 'go', 'php'
+        include_comments: Include inline documentation
+        include_error_handling: Include error handling code
+        include_tests: Include unit test template
+    
+    Returns:
+        Complete SDK code with installation instructions
+    """
+    from src.tools.enhanced_code_generator import get_enhanced_code_example as fn
+    return _extract(_run_async(fn(endpoint_id, language, include_comments, include_error_handling, include_tests)))
 
 
 @mcp.tool()
-def get_webhook_handler(event_type: str, language: str) -> str:
-    """Get webhook handler code."""
-    from src.tools.building_tools import get_webhook_handler as fn
-    return _extract(_run_async(fn(event_type, language)))
+def get_webhook_handler(
+    event_type: str,
+    language: str = "python",
+    signature_algo: str = "hmac-sha256",
+    include_docker: bool = False,
+    include_tests: bool = False
+) -> str:
+    """Generate production-ready webhook handler with signature verification.
+    
+    Args:
+        event_type: Webhook event type (e.g., 'order.charged', 'refund.processed')
+        language: Programming language - 'python', 'nodejs'
+        signature_algo: Signature algorithm - 'hmac-sha256', 'rsa-sha256'
+        include_docker: Include Dockerfile
+        include_tests: Include test suite
+    
+    Returns:
+        Webhook handler with HMAC/RSA verification, replay protection, idempotency
+    """
+    from src.tools.enhanced_webhook_handler import get_enhanced_webhook_handler as fn
+    return _extract(_run_async(fn(event_type, language, signature_algo, include_docker, include_tests)))
 
 
 @mcp.tool()
-def validate_payload(endpoint_id: str, payload: dict) -> str:
-    """Validate payload."""
-    from src.tools.building_tools import validate_payload as fn
-    return _extract(_run_async(fn(endpoint_id, payload)))
+def validate_payload(
+    endpoint_id: str,
+    payload: dict,
+    strict: bool = False
+) -> str:
+    """Deep payload validation with business rules and actionable suggestions.
+    
+    Args:
+        endpoint_id: API endpoint identifier
+        payload: Payload to validate
+        strict: If True, warnings become errors
+    
+    Returns:
+        Validation report with errors, warnings, and improvement suggestions
+    """
+    from src.tools.enhanced_validator import validate_enhanced_payload as fn
+    return _extract(_run_async(fn(endpoint_id, payload, strict)))
 
 
 # ===== Testing Tools =====
