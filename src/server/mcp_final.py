@@ -175,34 +175,166 @@ def validate_payload(
     return _extract(_run_async(fn(endpoint_id, payload, strict)))
 
 
-# ===== Testing Tools =====
+# ===== Testing Tools (Enhanced Phase 2) =====
 
 @mcp.tool()
-def test_sandbox(endpoint_id: str, payload: dict) -> str:
-    """Test in sandbox."""
-    from src.tools.testing_tools import test_sandbox as fn
-    return _extract(_run_async(fn(endpoint_id, payload, None)))
+def test_sandbox(
+    endpoint_id: str,
+    payload: dict,
+    api_key: str = None,
+    mode: str = "mock"
+) -> str:
+    """Test API calls in sandbox with real or mock responses.
+    
+    Args:
+        endpoint_id: API endpoint to test
+        payload: Request payload
+        api_key: Optional sandbox API key for real calls
+        mode: Operation mode - 'mock' (fast simulated) or 'sandbox' (real API)
+    
+    Returns:
+        Test result with annotations, latency metrics, and next steps
+    """
+    from src.tools.sandbox_client import test_in_sandbox
+    return _extract(_run_async(test_in_sandbox(endpoint_id, payload, api_key, mode)))
 
 
 @mcp.tool()
 def explain_error(error_code: str) -> str:
-    """Explain error code."""
+    """Explain error code with root cause analysis and fix suggestions."""
     from src.tools.testing_tools import explain_error as fn
     return _extract(_run_async(fn(error_code, None)))
 
 
 @mcp.tool()
-def get_test_cases(flow_type: str) -> str:
-    """Get test cases."""
-    from src.tools.testing_tools import get_test_cases as fn
-    return _extract(_run_async(fn(flow_type, "essential")))
+def get_test_cases(
+    flow_type: str,
+    coverage: str = "essential",
+    format: str = "detailed"
+) -> str:
+    """Get comprehensive test scenarios with generated test data.
+    
+    Args:
+        flow_type: Flow type (payment, refund, status, collect)
+        coverage: Coverage level - 'essential', 'comprehensive', 'edge_cases'
+        format: Output format - 'detailed', 'summary', 'executable'
+    
+    Returns:
+        Test scenarios with payloads, assertions, and execution metadata
+    """
+    from src.tools.enhanced_testing_tools import get_comprehensive_test_scenarios
+    return _extract(_run_async(get_comprehensive_test_scenarios(flow_type, coverage, format)))
 
 
 @mcp.tool()
-def check_integration() -> str:
-    """Check integration."""
-    from src.tools.testing_tools import check_integration as fn
-    return _extract(_run_async(fn("pre_production")))
+def generate_test_suite(
+    endpoint_id: str,
+    coverage_level: str = "essential",
+    include_postman: bool = False,
+    include_jmeter: bool = False
+) -> str:
+    """Generate complete test suite with coverage matrix.
+    
+    Args:
+        endpoint_id: API endpoint identifier
+        coverage_level: 'essential' or 'comprehensive'
+        include_postman: Export as Postman collection
+        include_jmeter: Export as JMeter JMX file
+    
+    Returns:
+        Test suite with categories, priorities, and optional exports
+    """
+    from src.tools.enhanced_testing_tools import generate_test_suite
+    return _extract(_run_async(generate_test_suite(endpoint_id, coverage_level, include_postman, include_jmeter)))
+
+
+@mcp.tool()
+def run_transaction_lifecycle_test(
+    endpoint_id: str,
+    merchant_id: str,
+    api_key: str = None,
+    polling_interval: int = 5,
+    max_polls: int = 12
+) -> str:
+    """Run complete transaction lifecycle with state tracking.
+    
+    Args:
+        endpoint_id: Starting endpoint (usually transaction.init)
+        merchant_id: Merchant ID for testing
+        api_key: Optional sandbox API key
+        polling_interval: Seconds between status polls
+        max_polls: Maximum polling attempts
+    
+    Returns:
+        Complete lifecycle trace with all state transitions and timing
+    """
+    from src.tools.enhanced_testing_tools import run_transaction_lifecycle_test
+    return _extract(_run_async(run_transaction_lifecycle_test(
+        endpoint_id, merchant_id, api_key, polling_interval, max_polls
+    )))
+
+
+@mcp.tool()
+def export_test_suite(
+    endpoint_id: str,
+    format: str,
+    coverage_level: str = "essential"
+) -> str:
+    """Export test suite in various formats.
+    
+    Args:
+        endpoint_id: API endpoint to generate tests for
+        format: Export format - 'postman', 'jmeter', 'curl', 'pytest'
+        coverage_level: Test coverage level
+    
+    Returns:
+        Exported test suite ready for use in external tools
+    """
+    from src.tools.enhanced_testing_tools import export_test_suite
+    return _extract(_run_async(export_test_suite(endpoint_id, format, coverage_level)))
+
+
+@mcp.tool()
+def run_integration_check(
+    merchant_id: str,
+    api_key: str = None,
+    webhook_url: str = None,
+    base_url: str = None,
+    checklist_type: str = "full"
+) -> str:
+    """Run automated integration checks and generate compliance report.
+    
+    Args:
+        merchant_id: Your merchant identifier
+        api_key: API key for authentication testing
+        webhook_url: Your webhook endpoint URL
+        base_url: API base URL (default: production)
+        checklist_type: 'full', 'connectivity', or 'security'
+    
+    Returns:
+        Complete integration report with pass/fail status and remediation steps
+    """
+    from src.tools.integration_checker import run_integration_check as fn
+    return _extract(_run_async(fn(merchant_id, api_key, webhook_url, base_url, checklist_type)))
+
+
+@mcp.tool()
+def validate_integration_readiness(
+    requirements: list,
+    merchant_config: dict
+) -> str:
+    """Validate specific integration requirements are met.
+    
+    Args:
+        requirements: List of requirements to validate
+                      (e.g., ['webhook', 'retry_logic', 'idempotency'])
+        merchant_config: Merchant configuration dictionary
+    
+    Returns:
+        Requirement-by-requirement validation results
+    """
+    from src.tools.integration_checker import validate_integration_readiness
+    return _extract(_run_async(validate_integration_readiness(requirements, merchant_config)))
 
 
 # ===== Debugging Tools =====
