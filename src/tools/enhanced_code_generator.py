@@ -10,6 +10,9 @@ from typing import Dict, Any, List
 from ..utils.database import database
 from .code_templates.python_sdk import generate_python_sdk
 from .code_templates.nodejs_sdk import generate_nodejs_sdk
+from .code_templates.java_sdk import generate_java_sdk, generate_java_webhook_handler, get_maven_dependencies
+from .code_templates.go_sdk import generate_go_sdk, generate_go_webhook_handler, get_go_mod
+from .code_templates.php_sdk import generate_php_sdk, generate_php_webhook_handler, get_composer_json
 
 
 class CodeGenerator:
@@ -33,23 +36,23 @@ class CodeGenerator:
         "java": {
             "name": "Java",
             "extension": ".java",
-            "generator": None,  # TODO: Implement
-            "requirements": ["okhttp", "gson"],
-            "install": "// Add to pom.xml or build.gradle"
+            "generator": generate_java_sdk,
+            "requirements": ["okhttp", "jackson-databind"],
+            "install": get_maven_dependencies()
         },
         "go": {
             "name": "Go",
             "extension": ".go",
-            "generator": None,  # TODO: Implement
+            "generator": generate_go_sdk,
             "requirements": [],
-            "install": "go mod tidy"
+            "install": get_go_mod()
         },
         "php": {
             "name": "PHP",
             "extension": ".php",
-            "generator": None,  # TODO: Implement
-            "requirements": [],
-            "install": "composer require guzzlehttp/guzzle"
+            "generator": generate_php_sdk,
+            "requirements": ["ext-curl", "ext-json"],
+            "install": get_composer_json()
         }
     }
     

@@ -668,6 +668,70 @@ def explain_concept(
     return _extract(_run_async(explain_concept(concept, depth)))
 
 
+# ===== Performance & Load Testing =====
+
+@mcp.tool()
+def run_load_test(
+    endpoint_id: str,
+    payload: dict,
+    concurrent_users: int = 10,
+    total_requests: int = 100,
+    ramp_up_seconds: float = 10.0,
+    think_time_seconds: float = 0.5
+) -> str:
+    """Run load test against a payment API endpoint.
+    
+    Args:
+        endpoint_id: API endpoint to test
+        payload: Request payload template
+        concurrent_users: Number of simulated concurrent users
+        total_requests: Total number of requests to make
+        ramp_up_seconds: Gradual ramp-up time
+        think_time_seconds: Delay between requests per user
+    
+    Returns:
+        Load test results with latency distribution and error analysis
+    """
+    from src.tools.load_testing import run_load_test
+    return _extract(_run_async(run_load_test(
+        endpoint_id, payload, concurrent_users, total_requests,
+        ramp_up_seconds, think_time_seconds
+    )))
+
+
+@mcp.tool()
+def run_stress_test(
+    endpoint_id: str,
+    payload: dict,
+    start_concurrent: int = 5,
+    max_concurrent: int = 100,
+    step_size: int = 10,
+    target_latency_ms: float = 2000.0,
+    target_error_rate: float = 0.05
+) -> str:
+    """Find breaking point by gradually increasing load.
+    
+    Args:
+        endpoint_id: API endpoint to stress test
+        payload: Request payload template
+        start_concurrent: Starting concurrent users
+        max_concurrent: Maximum concurrent users to test
+        step_size: Users to add per level
+        target_latency_ms: Max acceptable P95 latency (ms)
+        target_error_rate: Max acceptable error rate (0-1)
+    
+    Returns:
+        Breaking point analysis with capacity recommendations
+    """
+    from src.tools.load_testing import run_stress_test
+    return _extract(_run_async(run_stress_test(
+        endpoint_id, payload, start_concurrent, max_concurrent,
+        step_size, target_latency_ms, target_error_rate
+    )))
+
+
+# ===== System =====
+
 @mcp.tool()
 def health_check() -> str:
     """Health check."""
