@@ -337,25 +337,123 @@ def validate_integration_readiness(
     return _extract(_run_async(validate_integration_readiness(requirements, merchant_config)))
 
 
-# ===== Debugging Tools =====
+# ===== Debugging Tools (Enhanced Phase 3) =====
 
 @mcp.tool()
 def diagnose_webhook(headers: dict, body: str) -> str:
-    """Diagnose webhook."""
+    """Basic webhook diagnosis with signature verification."""
     from src.tools.debugging_tools import diagnose_webhook as fn
     return _extract(_run_async(fn(headers, body, None, None)))
 
 
 @mcp.tool()
+def run_deep_webhook_diagnostics(
+    webhook_url: str,
+    headers: dict,
+    body: str,
+    webhook_secret: str = None
+) -> str:
+    """Run comprehensive webhook diagnostics with network, security, and payload checks.
+    
+    Args:
+        webhook_url: Your webhook endpoint URL
+        headers: HTTP headers received from Juspay
+        body: Raw request body (as string)
+        webhook_secret: Your webhook secret for signature verification
+    
+    Returns:
+        Complete diagnostic report with findings and prioritized recommendations
+    """
+    from src.tools.enhanced_debugging_tools import run_deep_webhook_diagnostics
+    return _extract(_run_async(run_deep_webhook_diagnostics(webhook_url, headers, body, webhook_secret)))
+
+
+@mcp.tool()
+def analyze_issue_with_ai(
+    symptoms: str,
+    context: dict = None
+) -> str:
+    """AI-powered root cause analysis for payment integration issues.
+    
+    Args:
+        symptoms: Description of the problem you're experiencing
+        context: Additional context like endpoint, error_code, timestamp, merchant_id
+    
+    Returns:
+        Root cause analysis with confidence scores and actionable solutions
+    """
+    from src.tools.enhanced_debugging_tools import analyze_issue_with_ai
+    return _extract(_run_async(analyze_issue_with_ai(symptoms, context)))
+
+
+@mcp.tool()
+def analyze_webhook_logs(
+    logs: list
+) -> str:
+    """Analyze webhook delivery logs for trends and issues.
+    
+    Args:
+        logs: List of log entries with timestamp, status, event, latency_ms
+    
+    Returns:
+        Analysis with success rates, trends, and detected issues
+    """
+    from src.tools.enhanced_debugging_tools import analyze_webhook_logs
+    return _extract(_run_async(analyze_webhook_logs(logs)))
+
+
+@mcp.tool()
+def diagnose_api_error(
+    error_message: str,
+    endpoint_id: str = None,
+    request_payload: dict = None,
+    response_body: str = None
+) -> str:
+    """Diagnose API errors with pattern matching and context analysis.
+    
+    Args:
+        error_message: The error message received
+        endpoint_id: API endpoint that returned the error
+        request_payload: Request payload sent (optional)
+        response_body: Full response body (optional)
+    
+    Returns:
+        Diagnosis with root cause and fix instructions
+    """
+    from src.tools.enhanced_debugging_tools import diagnose_api_error
+    return _extract(_run_async(diagnose_api_error(error_message, endpoint_id, request_payload, response_body)))
+
+
+@mcp.tool()
+def find_similar_incidents(
+    issue_description: str,
+    merchant_id: str = None,
+    time_range_days: int = 30
+) -> str:
+    """Find similar past incidents and their resolutions.
+    
+    Args:
+        issue_description: Description of current issue
+        merchant_id: Optional merchant ID to filter by
+        time_range_days: How far back to search
+    
+    Returns:
+        Similar incidents with resolutions and outcomes
+    """
+    from src.tools.enhanced_debugging_tools import find_similar_incidents
+    return _extract(_run_async(find_similar_incidents(issue_description, merchant_id, time_range_days)))
+
+
+@mcp.tool()
 def lookup_error_map(error_code: str) -> str:
-    """Lookup error code."""
+    """Lookup error code with full context and affected endpoints."""
     from src.tools.debugging_tools import lookup_error_map as fn
     return _extract(_run_async(fn(error_code, None)))
 
 
 @mcp.tool()
 def search_known_issues(query: str) -> str:
-    """Search known issues with workarounds and related internal tickets."""
+    """Search known issues with workarounds using semantic search."""
     from src.tools.debugging_tools import search_known_issues as fn
     return _extract(_run_async(fn(query, None)))
 
