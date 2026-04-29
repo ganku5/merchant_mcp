@@ -551,6 +551,123 @@ def search_contextual_embeddings(query: str, doc_id: str = None, top_k: int = 5)
     return _extract(_run_async(fn(query, doc_id, top_k)))
 
 
+# ===== Guides & Documentation (Phase 4) =====
+
+@mcp.tool()
+def get_interactive_guide(
+    use_case: str,
+    role: str = "backend_developer",
+    tech_stack: str = "python_fastapi",
+    experience_level: str = "intermediate",
+    step_number: int = None
+) -> str:
+    """Get personalized, step-by-step integration guide.
+    
+    Args:
+        use_case: Integration use case (upi_payment, mandate_setup, refund_processing)
+        role: Your role (backend_developer, frontend_developer, fullstack_developer, devops_engineer)
+        tech_stack: Your technology stack (nodejs_express, python_fastapi, python_flask, python_django, java_spring, go, php)
+        experience_level: Your experience level (beginner, intermediate, advanced)
+        step_number: Specific step to view (None for full guide)
+    
+    Returns:
+        Interactive guide with code examples, commands, and FAQs
+    """
+    from src.tools.enhanced_guides import get_interactive_guide
+    return _extract(_run_async(get_interactive_guide(use_case, role, tech_stack, experience_level, step_number)))
+
+
+@mcp.tool()
+def generate_flow_diagram(
+    flow_type: str,
+    format: str = "mermaid",
+    include_timings: bool = False
+) -> str:
+    """Generate visual API flow diagram.
+    
+    Args:
+        flow_type: Type of flow (payment_standard, payment_collect, mandate_creation, refund_flow, state_machine)
+        format: Output format - 'mermaid', 'svg', 'png', 'embed'
+        include_timings: Include timing annotations on the diagram
+    
+    Returns:
+        Mermaid diagram code and rendering links
+    """
+    from src.tools.enhanced_guides import generate_flow_diagram
+    return _extract(_run_async(generate_flow_diagram(flow_type, format, include_timings)))
+
+
+@mcp.tool()
+def generate_error_decision_tree(
+    flow_type: str = "payment"
+) -> str:
+    """Generate decision tree for error handling.
+    
+    Args:
+        flow_type: Type of flow ('payment', 'webhook')
+    
+    Returns:
+        Decision tree diagram and error handling guide
+    """
+    from src.tools.enhanced_guides import generate_error_decision_tree
+    return _extract(_run_async(generate_error_decision_tree(flow_type)))
+
+
+@mcp.tool()
+def get_onboarding_wizard(
+    merchant_id: str,
+    completed_steps: list = None
+) -> str:
+    """Get personalized onboarding wizard with current step and progress.
+    
+    Args:
+        merchant_id: Your merchant identifier
+        completed_steps: List of steps already completed
+                       (account_setup, environment_config, first_api_call, webhook_setup, testing, go_live)
+    
+    Returns:
+        Current step details, progress, and recommended next actions
+    """
+    from src.tools.enhanced_guides import get_onboarding_wizard
+    return _extract(_run_async(get_onboarding_wizard(merchant_id, completed_steps or [])))
+
+
+@mcp.tool()
+def get_step_by_step_walkthrough(
+    endpoint_id: str,
+    action: str = "overview"
+) -> str:
+    """Get step-by-step walkthrough for a specific API endpoint.
+    
+    Args:
+        endpoint_id: API endpoint (e.g., 'ibmb.merchant.transaction.init')
+        action: What you want to do - 'overview', 'generate_payload', 'handle_response', 'troubleshoot'
+    
+    Returns:
+        Detailed walkthrough with examples for the specific action
+    """
+    from src.tools.enhanced_guides import get_step_by_step_walkthrough
+    return _extract(_run_async(get_step_by_step_walkthrough(endpoint_id, action)))
+
+
+@mcp.tool()
+def explain_concept(
+    concept: str,
+    depth: str = "overview"
+) -> str:
+    """Explain payment integration concepts in detail.
+    
+    Args:
+        concept: Concept to explain (idempotency, webhooks, upi_intent, signature_verification, etc.)
+        depth: Detail level - 'overview', 'technical', 'implementation'
+    
+    Returns:
+        Detailed explanation with examples
+    """
+    from src.tools.enhanced_guides import explain_concept
+    return _extract(_run_async(explain_concept(concept, depth)))
+
+
 @mcp.tool()
 def health_check() -> str:
     """Health check."""
