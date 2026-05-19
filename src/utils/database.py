@@ -102,11 +102,14 @@ class Database:
         """Search endpoints by path or description."""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                """SELECT endpoint_id, method, path, description
+                """SELECT endpoint_id, 
+                          COALESCE(spec_data->>'method', 'POST') as method,
+                          COALESCE(spec_data->>'path', '/') as path,
+                          COALESCE(spec_data->>'description', '') as description
                    FROM endpoint_specs
                    WHERE endpoint_id ILIKE $1 
-                      OR path ILIKE $1 
-                      OR description ILIKE $1
+                      OR COALESCE(spec_data->>'path', '') ILIKE $1 
+                      OR COALESCE(spec_data->>'description', '') ILIKE $1
                    ORDER BY endpoint_id
                    LIMIT $2""",
                 f"%{query}%", limit

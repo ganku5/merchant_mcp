@@ -26,15 +26,23 @@ class Database:
             max_size=20
         )
         
-        # Register pgvector extension
-        async with self.pool.acquire() as conn:
-            await register_vector(conn)
+        # Try to register pgvector extension, skip if not available
+        try:
+            async with self.pool.acquire() as conn:
+                await register_vector(conn)
+        except:
+            pass  # pgvector not available, continue without it
     
     async def init_schema(self):
         """Initialize database schema."""
         async with self.pool.acquire() as conn:
-            # Enable pgvector
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            # Try to enable pgvector, skip if not available
+            try:
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                pgvector_available = True
+            except:
+                pgvector_available = False
+                print("  ⚠️  pgvector extension not available, using JSONB for embeddings")
             
             # Endpoint specs table
             await conn.execute("""
@@ -115,19 +123,34 @@ class Database:
                 )
             """)
             
-            # Embeddings table with pgvector
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    id SERIAL PRIMARY KEY,
-                    namespace TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    embedding vector(768),
-                    chunk_text TEXT NOT NULL,
-                    metadata JSONB,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(namespace, entity_id)
-                )
-            """)
+            # Embeddings table (with pgvector or JSONB fallback)
+            if pgvector_available:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id SERIAL PRIMARY KEY,
+                        namespace TEXT NOT NULL,
+                        entity_id TEXT NOT NULL,
+                        embedding vector(768),
+                        chunk_text TEXT NOT NULL,
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(namespace, entity_id)
+                    )
+                """)
+            else:
+                # JSONB fallback for embeddings
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id SERIAL PRIMARY KEY,
+                        namespace TEXT NOT NULL,
+                        entity_id TEXT NOT NULL,
+                        embedding JSONB,
+                        chunk_text TEXT NOT NULL,
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(namespace, entity_id)
+                    )
+                """)
             
             # Source documents table
             await conn.execute("""
@@ -140,11 +163,60 @@ class Database:
                 )
             """)
             
-            # Create HNSW index for embeddings
+            # Documents table (used by ingest.py)
             await conn.execute("""
-                CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx 
-                ON embeddings USING hnsw (embedding vector_cosine_ops)
+                CREATE TABLE IF NOT EXISTS documents (
+                    doc_id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    content TEXT,
+                    num_pages INTEGER DEFAULT 0,
+                    total_chars INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
             """)
+            
+            # Text chunks table (used by ingest.py)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS text_chunks (
+                    chunk_id SERIAL PRIMARY KEY,
+                    doc_id TEXT REFERENCES documents(doc_id) ON DELETE CASCADE,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
+                    embedding JSONB,
+                    namespace TEXT DEFAULT 'general',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(doc_id, chunk_index)
+                )
+            """)
+            
+            # Contextual embeddings table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS contextual_embeddings (
+                    context_id SERIAL PRIMARY KEY,
+                    source_chunk_id INTEGER,
+                    source_doc_id TEXT REFERENCES documents(doc_id) ON DELETE CASCADE,
+                    original_content TEXT NOT NULL,
+                    content_summary TEXT,
+                    qa_pairs JSONB NOT NULL DEFAULT '[]',
+                    combined_context TEXT NOT NULL,
+                    embedding JSONB,
+                    embedding_dimensions INTEGER DEFAULT 768,
+                    context_type VARCHAR(30) DEFAULT 'qa_pairs',
+                    generation_model TEXT DEFAULT 'gpt-4o-mini',
+                    generation_prompt TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create HNSW index for embeddings (only if pgvector available)
+            if pgvector_available:
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx 
+                    ON embeddings USING hnsw (embedding vector_cosine_ops)
+                """)
             
             # Create namespace index
             await conn.execute("""

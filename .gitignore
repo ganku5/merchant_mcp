@@ -69,3 +69,23 @@ htmlcov/
 
 # pyenv
 .python-version
+
+# MCP Generated/Temp files
+context/
+api_specs/contextual/
+*.pid
+nohup.out
+
+# Ingestion temp scripts (keep main ones)
+ingest_contextual_*.py
+check_*.py
+resume_*.py
+verify_*.py
+convert_*.py
+download_*.py
+full_ingest_*.py
+generate_contextual_for_doc.py
+update_api_specs_with_security.py
+
+# Output files
+*.snapshot
