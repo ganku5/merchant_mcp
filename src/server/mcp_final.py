@@ -551,6 +551,33 @@ def search_contextual_embeddings(query: str, doc_id: str = None, top_k: int = 5)
     return _extract(_run_async(fn(query, doc_id, top_k)))
 
 
+@mcp.tool()
+def search_documents(query: str, doc_id: str = None, top_k: int = 5) -> str:
+    """Hybrid document search using both text chunks and contextual embeddings.
+    
+    This tool searches all ingested documents using a hybrid approach:
+    - Primary: Full-text search on raw document chunks (always available)
+    - Secondary: Semantic Q&A pairs from contextual embeddings (when available)
+    
+    Use this for comprehensive document search when you need to find:
+    - Implementation guides
+    - API specifications
+    - Merchant onboarding steps
+    - Error code explanations
+    - Any content from uploaded PDFs and documents
+    
+    Args:
+        query: The search query/question (e.g., "how to onboard merchant", "JWE encryption steps")
+        doc_id: Optional document ID to filter results (e.g., "ibmb_pa_portal_manual")
+        top_k: Number of top results to return (default: 5)
+    
+    Returns:
+        Search results with content excerpts and generated Q&A pairs when available
+    """
+    from src.tools.improved_search import search_with_qa_format
+    return _run_async(search_with_qa_format(query, doc_id, top_k))
+
+
 # ===== Guides & Documentation (Phase 4) =====
 
 @mcp.tool()
@@ -743,9 +770,62 @@ def health_check() -> str:
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Merchant Integration MCP Server")
+    parser.add_argument("--transport", choices=["stdio", "http", "sse"], default="stdio",
+                       help="Transport type (stdio for local, http/sse for network)")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind (0.0.0.0 for all interfaces)")
+    parser.add_argument("--port", type=int, default=8000, help="Port to listen on")
+    args = parser.parse_args()
+    
     _init_db()
     try:
-        mcp.run(transport="stdio")
+        if args.transport == "stdio":
+            mcp.run(transport="stdio")
+        else:
+            # HTTP/SSE mode for network access
+            print(f"\n{'='*60}")
+            print(f"🚀 MCP Server starting in HTTP mode")
+            print(f"   Host: {args.host}")
+            print(f"   Port: {args.port}")
+            print(f"   Supports: GET and POST on /mcp")
+            print(f"{'='*60}\n")
+            
+            # Configure HTTP transport to accept both GET and POST
+            # FastMCP uses Starlette internally
+            from starlette.applications import Starlette
+            from starlette.routing import Route
+            from mcp.server.sse import SseServerTransport
+            
+            # Create a custom handler that accepts both GET and POST
+            sse_transport = SseServerTransport("/mcp")
+            
+            async def mcp_handler(request):
+                """Handle both GET and POST requests on /mcp endpoint."""
+                if request.method == "GET":
+                    # For GET requests, return server info or handle as SSE
+                    return await sse_transport.handle(request)
+                elif request.method == "POST":
+                    # For POST requests, handle JSON-RPC calls
+                    return await sse_transport.handle(request)
+                else:
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(
+                        {"error": "Method not allowed"}, 
+                        status_code=405
+                    )
+            
+            # Mount custom routes
+            routes = [
+                Route("/mcp", mcp_handler, methods=["GET", "POST"]),
+            ]
+            
+            # Run with custom configuration
+            mcp.run(
+                transport="http", 
+                host=args.host, 
+                port=args.port,
+            )
     finally:
         _close_db()
         _loop.call_soon_threadsafe(_loop.stop)

@@ -5,6 +5,7 @@ Generates Q&A pairs from text content using LLM and creates contextual embedding
 """
 
 import json
+import re
 import asyncio
 from typing import List, Dict, Any, Optional
 from ..utils.database import database
@@ -49,6 +50,33 @@ Generate Q&A pairs (respond ONLY with valid JSON array):"""
 
 Summary:"""
 
+    CONTEXTUAL_QA_GENERATION_PROMPT = """You are an expert at extracting knowledge from technical documentation.
+
+Given a passage of text WITH its surrounding context, generate 3-5 relevant question-and-answer pairs that capture the key information.
+
+Guidelines:
+1. Questions should be specific and natural (as if a developer is asking)
+2. Answers should be concise but complete, using information from the CURRENT CHUNK
+3. Use surrounding context (Previous/Next chunks) to better understand the CURRENT CHUNK
+4. Include different types:
+   - Factual: "What is...?", "How does...?"
+   - Procedural: "How do I...?", "What are the steps to...?"
+   - Conceptual: "Why...?", "What is the purpose of...?"
+5. If the text lacks sufficient detail, generate fewer pairs
+6. Ensure answers are directly supported by the CURRENT CHUNK
+
+Context Structure:
+- Previous Chunk: Contains context that occurred before the current section
+- Current Chunk: The main content to analyze (this is where answers come from)
+- Next Chunk: Contains context that follows the current section
+
+Format your response as a JSON array with this EXACT structure (do not deviate):
+[{"question": "What is JWE?", "answer": "JSON Web Encryption is used for secure data transmission.", "type": "conceptual"}]
+
+{{context_block}}
+
+Generate Q&A pairs (respond ONLY with valid JSON array, no extra text):"""
+
     def __init__(self):
         self.stats = {
             "processed": 0,
@@ -56,47 +84,107 @@ Summary:"""
             "failed": 0
         }
     
-    async def generate_qa_pairs(self, text: str) -> List[Dict[str, str]]:
-        """Generate Q&A pairs from text using LLM."""
+    def _extract_json_array(self, content: str) -> List[Dict]:
+        """Extract JSON array from LLM response, handling reasoning/thinking output."""
+        # Find the first '[' and last ']'
+        start_idx = content.find('[')
+        end_idx = content.rfind(']')
+        
+        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+            return []
+        
+        json_str = content[start_idx:end_idx + 1]
+        
+        # Try direct parsing first
         try:
-            prompt = self.QA_GENERATION_PROMPT.format(text=text[:3000])  # Limit context
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try cleaning up common issues
+        try:
+            # Remove markdown code blocks if present
+            if '```json' in json_str:
+                json_str = json_str.split('```json')[1].split('```')[0]
+            elif '```' in json_str:
+                json_str = json_str.split('```')[1].split('```')[0]
+            
+            # Fix trailing commas before closing brackets
+            cleaned = re.sub(r',\s*}', '}', json_str)
+            cleaned = re.sub(r',\s*\]', ']', cleaned)
+            
+            # Fix newlines in property names (common with kimi-latest)
+            cleaned = re.sub(r'\n\s*"', '\n"', cleaned)
+            
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try to find individual JSON objects as fallback
+        try:
+            # Find all {...} patterns
+            objects = re.findall(r'\{[^{}]*"question"[^{}]*"answer"[^{}]*\}', json_str, re.DOTALL)
+            pairs = []
+            for obj in objects:
+                try:
+                    parsed = json.loads(obj)
+                    if 'question' in parsed and 'answer' in parsed:
+                        pairs.append(parsed)
+                except:
+                    continue
+            if pairs:
+                return pairs
+        except:
+            pass
+        
+        return []
+    
+    async def generate_qa_pairs(self, text: str, prev_chunk: str = "", next_chunk: str = "") -> List[Dict[str, str]]:
+        """Generate Q&A pairs from text using LLM with surrounding context."""
+        try:
+            # Build context block with prev/current/next chunks
+            context_parts = []
+            if prev_chunk:
+                context_parts.append(f"PREVIOUS CHUNK:\n{prev_chunk[:800]}...")
+            context_parts.append(f"CURRENT CHUNK (Analyze this):\n{text[:1500]}")
+            if next_chunk:
+                context_parts.append(f"NEXT CHUNK:\n{next_chunk[:800]}...")
+            
+            context_block = "\n\n".join(context_parts)
+            
+            prompt = self.CONTEXTUAL_QA_GENERATION_PROMPT.replace('{{context_block}}', context_block)
             
             response = await llm_client.chat(
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts Q&A pairs from text. Respond only with valid JSON."},
+                    {"role": "system", "content": "You are a JSON-generating assistant. Extract Q&A pairs and output ONLY a valid JSON array. No explanation, no markdown formatting, just raw JSON starting with [ and ending with ]."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
-                max_tokens=1000
+                temperature=0.1,  # Lower temp for more consistent JSON
+                max_tokens=1200
             )
             
             # Extract JSON from response
-            content = response
+            content = response.strip()
             
-            # Try to find JSON array in the response
-            start_idx = content.find('[')
-            end_idx = content.rfind(']')
+            # Extract JSON array
+            qa_pairs = self._extract_json_array(content)
             
-            if start_idx != -1 and end_idx != -1:
-                json_str = content[start_idx:end_idx + 1]
-                qa_pairs = json.loads(json_str)
-                
-                # Validate structure
-                valid_pairs = []
-                for pair in qa_pairs:
-                    if isinstance(pair, dict) and 'question' in pair and 'answer' in pair:
-                        valid_pairs.append({
-                            'question': pair['question'],
-                            'answer': pair['answer'],
-                            'type': pair.get('type', 'factual')
-                        })
-                
-                return valid_pairs
+            # Validate structure
+            valid_pairs = []
+            for pair in qa_pairs:
+                if isinstance(pair, dict) and 'question' in pair and 'answer' in pair:
+                    valid_pairs.append({
+                        'question': pair['question'],
+                        'answer': pair['answer'],
+                        'type': pair.get('type', 'factual')
+                    })
             
-            return []
+            return valid_pairs
             
         except Exception as e:
-            print(f"⚠️ Error generating Q&A pairs: {e}")
+            import traceback
+            print(f"⚠️ Error generating Q&A pairs: {repr(str(e)[:200])}")
+            traceback.print_exc()
             return []
     
     async def generate_summary(self, text: str) -> str:
@@ -106,27 +194,65 @@ Summary:"""
             
             response = await llm_client.chat(
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that summarizes technical content."},
+                    {"role": "system", "content": "You are a summarization assistant. Provide a concise 2-3 sentence summary. Output ONLY the summary text, no preamble, no explanation."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
+                temperature=0.1,
                 max_tokens=200
             )
             
-            return response.strip()
+            # Clean up any reasoning/thinking output
+            content = response.strip()
+            
+            # If response contains thinking markers, extract just the actual summary
+            # Look for the last sentence that seems like a summary
+            lines = [l.strip() for l in content.split('\n') if l.strip()]
+            
+            # Filter out meta-commentary lines
+            summary_lines = []
+            for line in lines:
+                line_lower = line.lower()
+                # Skip lines that look like internal thinking
+                if any(marker in line_lower for marker in [
+                    'the user wants', 'i need to', 'draft:', 'let me', 
+                    'i should', 'actually,', 'looking at', 'this appears',
+                    'wait,', 'hmm,', 'okay,', 'so,', 'first,', 'next,'
+                ]):
+                    continue
+                summary_lines.append(line)
+            
+            # If we filtered too much, return last non-empty lines
+            if not summary_lines and lines:
+                summary_lines = lines[-3:]  # Last 3 lines as fallback
+            
+            return ' '.join(summary_lines)
             
         except Exception as e:
             print(f"⚠️ Error generating summary: {e}")
             return ""
     
-    def combine_qa_to_context(self, qa_pairs: List[Dict], original_text: str, summary: str = "") -> str:
+    def combine_qa_to_context(
+        self, 
+        qa_pairs: List[Dict], 
+        original_text: str, 
+        summary: str = "",
+        prev_chunk: str = "",
+        next_chunk: str = ""
+    ) -> str:
         """Combine Q&A pairs into a unified context string for embedding."""
         parts = []
         
         if summary:
             parts.append(f"Summary: {summary}")
         
-        parts.append(f"Original Content: {original_text[:500]}...")
+        # Include context window for better semantic understanding
+        if prev_chunk:
+            parts.append(f"\n[Context - Previous]: {prev_chunk[:400]}...")
+        
+        parts.append(f"\nCurrent Content: {original_text[:500]}...")
+        
+        if next_chunk:
+            parts.append(f"\n[Context - Following]: {next_chunk[:400]}...")
         
         if qa_pairs:
             parts.append("\nKey Questions and Answers:")
@@ -145,17 +271,24 @@ Summary:"""
             print(f"⚠️ Error generating embedding: {e}")
             return []
     
-    async def process_chunk(self, chunk_id: int, doc_id: str, content: str) -> Optional[int]:
-        """Process a single text chunk and create contextual embedding."""
+    async def process_chunk(
+        self, 
+        chunk_id: int, 
+        doc_id: str, 
+        content: str,
+        prev_chunk: str = "",
+        next_chunk: str = ""
+    ) -> Optional[int]:
+        """Process a single text chunk and create contextual embedding with surrounding context."""
         try:
-            # Generate Q&A pairs
-            qa_pairs = await self.generate_qa_pairs(content)
+            # Generate Q&A pairs with surrounding context
+            qa_pairs = await self.generate_qa_pairs(content, prev_chunk, next_chunk)
             
             # Generate summary
             summary = await self.generate_summary(content)
             
-            # Combine into context
-            combined_context = self.combine_qa_to_context(qa_pairs, content, summary)
+            # Combine into context including prev/next chunks
+            combined_context = self.combine_qa_to_context(qa_pairs, content, summary, prev_chunk, next_chunk)
             
             # Generate embedding
             embedding = await self.generate_embedding(combined_context)
@@ -225,31 +358,64 @@ Summary:"""
             self.stats["failed"] += 1
             return None
     
-    async def process_document(self, doc_id: str, batch_size: int = 3):
-        """Process all chunks of a document."""
+    async def process_document(self, doc_id: str, batch_size: int = 3, force_regenerate: bool = False):
+        """Process all chunks of a document with prev/next context awareness."""
         if database._pool is None:
             await database.connect()
         
         conn = database.pool
         
         async with conn.acquire() as db_conn:
-            # Get all chunks for the document that don't have contextual embeddings
-            chunks = await db_conn.fetch("""
-                SELECT tc.chunk_id, tc.chunk_text as content
-                FROM text_chunks tc
-                LEFT JOIN contextual_embeddings ce ON tc.chunk_id = ce.source_chunk_id
-                WHERE tc.doc_id = $1
-                  AND ce.context_id IS NULL
-                ORDER BY tc.chunk_index
-            """, doc_id)
+            # Get ALL chunks ordered by index so we can build context windows
+            if force_regenerate:
+                chunks = await db_conn.fetch("""
+                    SELECT tc.chunk_id, tc.chunk_text as content, tc.chunk_index
+                    FROM text_chunks tc
+                    WHERE tc.doc_id = $1
+                    ORDER BY tc.chunk_index
+                """, doc_id)
+            else:
+                # Get only chunks that don't have contextual embeddings yet
+                chunks = await db_conn.fetch("""
+                    SELECT tc.chunk_id, tc.chunk_text as content, tc.chunk_index
+                    FROM text_chunks tc
+                    LEFT JOIN contextual_embeddings ce ON tc.chunk_id = ce.source_chunk_id
+                    WHERE tc.doc_id = $1
+                      AND ce.context_id IS NULL
+                    ORDER BY tc.chunk_index
+                """, doc_id)
+            
+            if not chunks:
+                print(f"📄 No new chunks to process for {doc_id}")
+                return self.stats
             
             print(f"📄 Found {len(chunks)} chunks to process for {doc_id}")
             
-            # Process in batches
+            # Build a lookup for all chunks to get prev/next content
+            chunk_lookup = {}
+            for i, c in enumerate(chunks):
+                chunk_lookup[c['chunk_id']] = {
+                    'index': i,
+                    'content': c['content']
+                }
+            
+            # Process in batches with context
             for i in range(0, len(chunks), batch_size):
                 batch = chunks[i:i + batch_size]
                 for c in batch:
-                    await self.process_chunk(c['chunk_id'], doc_id, c['content'])
+                    idx = chunk_lookup[c['chunk_id']]['index']
+                    
+                    # Get prev/next chunk content
+                    prev_content = chunks[idx - 1]['content'] if idx > 0 else ""
+                    next_content = chunks[idx + 1]['content'] if idx < len(chunks) - 1 else ""
+                    
+                    await self.process_chunk(
+                        c['chunk_id'], 
+                        doc_id, 
+                        c['content'],
+                        prev_chunk=prev_content,
+                        next_chunk=next_content
+                    )
                 
                 self.stats["processed"] += len(batch)
                 print(f"  Progress: {self.stats['processed']}/{len(chunks)} chunks")

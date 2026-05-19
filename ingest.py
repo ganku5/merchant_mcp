@@ -27,12 +27,16 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Force unbuffered output for real-time feedback
+sys.stdout.reconfigure(line_buffering=True)
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import pdfplumber
 from src.utils.database import database
 from src.utils.llm import llm_client
+from src.tools.contextual_embedding_generator import ContextualEmbeddingGenerator
 
 
 class FileTypeDetector:
@@ -93,13 +97,14 @@ class FileTypeDetector:
 class GenericIngester:
     """Generic file ingester that adapts to file type."""
     
-    def __init__(self):
+    def __init__(self, skip_contextual: bool = False):
         self.results = {
             "documents": [],
             "endpoints": [],
             "error_codes": [],
             "chunks": 0
         }
+        self.skip_contextual = skip_contextual
     
     async def ingest(self, filepath: str, doc_id: Optional[str] = None, 
                      force_type: Optional[str] = None) -> Dict[str, Any]:
@@ -229,16 +234,34 @@ class GenericIngester:
         
         print(f"✓ Stored {len(chunks)} chunks ({embedded_count} with embeddings)")
         
-        # Step 2: Try to extract structured data (endpoints)
+        # Step 2: Generate contextual embeddings with prev/next chunk context
+        if not self.skip_contextual:
+            print("\n" + "=" * 60)
+            print("STEP 3: Generating contextual embeddings with context windows")
+            print("=" * 60)
+            print("(Use --skip-contextual to skip this step for faster ingestion)")
+            
+            try:
+                generator = ContextualEmbeddingGenerator()
+                ctx_stats = await generator.process_document(doc_id)
+                print(f"✓ Generated {ctx_stats['generated']} contextual embeddings")
+                if ctx_stats['failed'] > 0:
+                    print(f"  ⚠️  {ctx_stats['failed']} failed")
+            except Exception as e:
+                print(f"  ⚠️  Contextual embedding generation failed: {e}")
+        else:
+            print("\n⏩ Skipping contextual embedding generation (--skip-contextual)")
+        
+        # Step 4: Try to extract structured data (endpoints)
         print("\n" + "=" * 60)
-        print("STEP 3: Extracting API endpoints (if present)")
+        print("STEP 4: Extracting API endpoints (if present)")
         print("=" * 60)
         
         endpoints = await self._extract_endpoints_from_text(full_text, doc_id)
         
-        # Step 3: Try to extract error codes
+        # Step 5: Try to extract error codes
         print("\n" + "=" * 60)
-        print("STEP 4: Extracting error codes (if present)")
+        print("STEP 5: Extracting error codes (if present)")
         print("=" * 60)
         
         errors = await self._extract_errors_from_text(full_text, doc_id)
@@ -519,6 +542,20 @@ class GenericIngester:
         
         print(f"✓ Stored {len(chunks)} chunks ({embedded} with embeddings)")
         
+        # Generate contextual embeddings with prev/next chunk context
+        if not self.skip_contextual:
+            print("\nGenerating contextual embeddings with context windows...")
+            try:
+                generator = ContextualEmbeddingGenerator()
+                ctx_stats = await generator.process_document(doc_id)
+                print(f"✓ Generated {ctx_stats['generated']} contextual embeddings")
+                if ctx_stats['failed'] > 0:
+                    print(f"  ⚠️  {ctx_stats['failed']} failed")
+            except Exception as e:
+                print(f"  ⚠️  Contextual embedding generation failed: {e}")
+        else:
+            print("\n⏩ Skipping contextual embedding generation (--skip-contextual)")
+        
         self.results["documents"].append(doc_id)
         self.results["chunks"] += len(chunks)
         
@@ -764,6 +801,7 @@ Return ONLY the JSON array, no explanation."""
                 "Documents": await conn.fetchval("SELECT COUNT(*) FROM documents"),
                 "Text chunks": await conn.fetchval("SELECT COUNT(*) FROM text_chunks"),
                 "Embedded chunks": await conn.fetchval("SELECT COUNT(*) FROM text_chunks WHERE embedding IS NOT NULL"),
+                "Contextual embeddings": await conn.fetchval("SELECT COUNT(*) FROM contextual_embeddings"),
                 "Endpoints": await conn.fetchval("SELECT COUNT(*) FROM endpoint_specs"),
                 "Error codes": await conn.fetchval("SELECT COUNT(*) FROM error_codes"),
             }
@@ -787,10 +825,12 @@ Examples:
                        help="Force specific file type (auto-detected if not provided)")
     parser.add_argument("--dry-run", action="store_true",
                        help="Preview what would be ingested without saving")
+    parser.add_argument("--skip-contextual", action="store_true",
+                       help="Skip contextual embedding generation (faster ingestion)")
     
     args = parser.parse_args()
     
-    ingester = GenericIngester()
+    ingester = GenericIngester(skip_contextual=args.skip_contextual)
     
     try:
         result = await ingester.ingest(
