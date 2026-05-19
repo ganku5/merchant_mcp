@@ -89,3 +89,9 @@ update_api_specs_with_security.py
 
 # Output files
 *.snapshot
+
+# More temp scripts
+ingest_all_circulars.py
+run_background_ingestion.sh
+start_contextual_mcp.py
+start_mcp_upi.sh
