@@ -95,3 +95,19 @@ ingest_all_circulars.py
 run_background_ingestion.sh
 start_contextual_mcp.py
 start_mcp_upi.sh
+
+# Patch-specific additions
+*.dump
+
+bulk_docs/
+source_docs/
+.claude/
+CLAUDE.md
+.mcp.json
+get-pip.py
+fetch_html_doc.py
+
+scripts/__pycache__/
+src/**/__pycache__/
+src/server/mcp_stdio_docs.py
+scripts/test_ingest_npci_ocs_2.py

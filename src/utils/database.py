@@ -413,43 +413,49 @@ class Database:
                        chunk_text = EXCLUDED.chunk_text,
                        embedding = EXCLUDED.embedding""",
                 doc_id, chunk_index, chunk_text,
-                json.dumps(embedding) if embedding else None,
+                embedding if embedding else None,
                 namespace
             )
-    
     async def search_similar_chunks(self, query_embedding: List[float],
                                     namespace: Optional[str] = None,
                                     limit: int = 5) -> List[Dict]:
         """Search for similar text chunks using cosine similarity."""
         async with self.pool.acquire() as conn:
-            # Convert query embedding to PostgreSQL array format
             embedding_array = query_embedding
-            
+
             if namespace:
                 rows = await conn.fetch(
-                    """SELECT tc.chunk_text, tc.namespace, d.filename,
-                              1 - (tc.embedding::vector <=> $1::vector) as similarity
+                    """SELECT tc.doc_id,
+                              tc.chunk_index,
+                              tc.chunk_text,
+                              tc.namespace,
+                              d.filename,
+                              1 - (tc.embedding <=> $1::vector) as similarity
                        FROM text_chunks tc
                        JOIN documents d ON tc.doc_id = d.doc_id
                        WHERE tc.namespace = $2 AND tc.embedding IS NOT NULL
-                       ORDER BY tc.embedding::vector <=> $1::vector
+                       ORDER BY tc.embedding <=> $1::vector
                        LIMIT $3""",
                     embedding_array, namespace, limit
                 )
             else:
                 rows = await conn.fetch(
-                    """SELECT tc.chunk_text, tc.namespace, d.filename,
-                              1 - (tc.embedding::vector <=> $1::vector) as similarity
+                    """SELECT tc.doc_id,
+                              tc.chunk_index,
+                              tc.chunk_text,
+                              tc.namespace,
+                              d.filename,
+                              1 - (tc.embedding <=> $1::vector) as similarity
                        FROM text_chunks tc
                        JOIN documents d ON tc.doc_id = d.doc_id
                        WHERE tc.embedding IS NOT NULL
-                       ORDER BY tc.embedding::vector <=> $1::vector
+                       ORDER BY tc.embedding <=> $1::vector
                        LIMIT $2""",
                     embedding_array, limit
                 )
-            
+
             return [dict(r) for r in rows]
-    
+
     async def get_document_content(self, doc_id: str) -> Optional[str]:
         """Get document content by ID."""
         async with self.pool.acquire() as conn:
