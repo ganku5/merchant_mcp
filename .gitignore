@@ -18,3 +18,4 @@ src/**/__pycache__/
 src/server/mcp_stdio_docs.py
 scripts/test_ingest_npci_ocs_2.py
 api_specs/upi/*.json
+load.env
