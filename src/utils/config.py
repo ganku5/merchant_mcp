@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-ENV_FILE = Path("/home/ganesh/context_mcp/load.env")
+ENV_FILE = Path(os.getenv("MCP_ENV_FILE", "load.env"))
 
 
 class Config:
