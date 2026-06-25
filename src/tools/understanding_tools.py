@@ -550,6 +550,7 @@ async def search_docs(query: str, limit: int = 5, namespace: Optional[str] = Non
             sections = [f"# Search Results for: \"{query}\"\n"]
 
             for i, result in enumerate(results, 1):
+                result = dict(result)
                 sim_pct = result.get('similarity', 0) * 100
                 sections.append(f"\n## Result {i} (Relevance: {sim_pct:.0f}%)")
                 sections.append(f"**Source:** {result.get('namespace', 'unknown')} / {result.get('filename', 'doc')}")

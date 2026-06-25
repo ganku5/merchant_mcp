@@ -55,6 +55,29 @@ def _build_retrieval_plan(question: str):
     plan = []
     seen = set()
 
+    if any(k in q_lower for k in ["niubiz", "tpap", "tapp", "peru", "bcrp", "dpi", "qr", "s2s", "onboarding", "merchant integration"]):
+        _add_plan(
+            plan,
+            seen,
+            q,
+            "ganesh_shared_docs",
+            1.45,
+        )
+        _add_plan(
+            plan,
+            seen,
+            "Niubiz merchant integration models QR TAPP Peru BCRP merchant flows",
+            "ganesh_shared_docs",
+            1.35,
+        )
+        _add_plan(
+            plan,
+            seen,
+            "TPAP onboarding S2S Juspay NIUBIZ TAPP registration account management transaction flows",
+            "ganesh_shared_docs",
+            1.3,
+        )
+
     if any(k in q_lower for k in ["deemed", "pending", "deliver", "goods", "service", "merchant", "success", "failure", "failed"]):
         _add_plan(
             plan,
@@ -341,6 +364,64 @@ async def get_test_cases(flow_type: str) -> str:
     from src.tools.testing_tools import get_test_cases as fn
 
     return _extract(await fn(flow_type))
+
+
+
+@mcp.tool()
+async def list_apis(limit: int = 100, query: str = "") -> str:
+    """List available ingested APIs/endpoints."""
+    await ensure_database()
+
+    limit = max(1, min(int(limit or 100), 500))
+    q = (query or "").strip()
+
+    async with database.pool.acquire() as conn:
+        if q:
+            rows = await conn.fetch("""
+                SELECT endpoint_id, method, path, description, source_doc_id
+                FROM endpoint_specs
+                WHERE endpoint_id ILIKE $1
+                   OR path ILIKE $1
+                   OR method ILIKE $1
+                   OR description ILIKE $1
+                   OR source_doc_id ILIKE $1
+                ORDER BY endpoint_id
+                LIMIT $2
+            """, f"%{q}%", limit)
+        else:
+            rows = await conn.fetch("""
+                SELECT endpoint_id, method, path, description, source_doc_id
+                FROM endpoint_specs
+                ORDER BY endpoint_id
+                LIMIT $1
+            """, limit)
+
+    if not rows:
+        return "No APIs found."
+
+    lines = [
+        "# Available APIs",
+        "",
+        "Use endpoint_id with get_api_spec / generate_payload / get_code_example.",
+        "",
+    ]
+
+    for i, r in enumerate(rows, start=1):
+        desc = (r["description"] or "").strip().replace("\n", " ")
+        if len(desc) > 160:
+            desc = desc[:157] + "..."
+
+        lines.append(
+            f"{i}. `{r['endpoint_id']}`\n"
+            f"   Method: `{r['method']}`\n"
+            f"   Path: `{r['path']}`\n"
+            f"   Source: `{r['source_doc_id'] or '-'}`"
+        )
+        if desc:
+            lines.append(f"   Description: {desc}")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 @mcp.tool()
