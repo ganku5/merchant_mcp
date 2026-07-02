@@ -23,6 +23,11 @@ CREATE TABLE api_specs_v2 (
     summary TEXT,
     documentation_url TEXT,
     changelog JSONB DEFAULT '[]',
+    business_use_case TEXT,
+    business_use_case_embedding JSONB,
+    source_doc_id TEXT,
+    source_file TEXT,
+    source_hash TEXT,
     
     -- Rate limiting
     rate_limit JSONB DEFAULT '{}',
@@ -185,6 +190,8 @@ CREATE TABLE api_samples (
 -- Create indexes for efficient lookups
 CREATE INDEX idx_api_specs_endpoint ON api_specs_v2(endpoint_id);
 CREATE INDEX idx_api_specs_method_path ON api_specs_v2(method, path);
+CREATE INDEX idx_api_specs_source_doc ON api_specs_v2(source_doc_id);
+CREATE INDEX idx_api_specs_source_file ON api_specs_v2(source_file);
 
 CREATE INDEX idx_api_headers_spec ON api_headers(spec_id, header_type);
 CREATE INDEX idx_api_headers_name ON api_headers(spec_id, header_type, name);

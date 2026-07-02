@@ -1,6 +1,8 @@
 """Unified database layer for all MCP tools."""
 
 import json
+import math
+import re
 from typing import Any, Dict, List, Optional
 import asyncpg
 from pgvector.asyncpg import register_vector
@@ -68,33 +70,29 @@ class Database:
         """Get endpoint specification by ID."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
-                """SELECT endpoint_id, method, path, description, auth_type,
-                          request_schema, response_schema, error_responses,
-                          spec_data, rate_limit, idempotency,
-                          related_webhooks, related_flows, code_examples,
-                          sandbox_notes
-                   FROM endpoint_specs 
-                   WHERE endpoint_id = $1""",
+                "SELECT * FROM endpoint_specs WHERE endpoint_id = $1",
                 endpoint_id
             )
             
             if row:
+                data = dict(row)
+                spec_data = _parse_json(data.get('spec_data')) or {}
                 return {
-                    'endpoint_id': row['endpoint_id'],
-                    'method': row['method'],
-                    'path': row['path'],
-                    'description': row['description'],
-                    'auth_type': row['auth_type'],
-                    'request_schema': _parse_json(row['request_schema']) or {},
-                    'response_schema': _parse_json(row['response_schema']) or {},
-                    'error_responses': _parse_json(row['error_responses']) or [],
-                    'spec_data': _parse_json(row['spec_data']) or {},
-                    'rate_limit': _parse_json(row['rate_limit']),
-                    'idempotency': _parse_json(row['idempotency']),
-                    'related_webhooks': _parse_json(row['related_webhooks']) or [],
-                    'related_flows': _parse_json(row['related_flows']) or [],
-                    'code_examples': _parse_json(row['code_examples']) or {},
-                    'sandbox_notes': row['sandbox_notes']
+                    'endpoint_id': data.get('endpoint_id'),
+                    'method': data.get('method') or spec_data.get('method', 'POST'),
+                    'path': data.get('path') or spec_data.get('path', '/'),
+                    'description': data.get('description') or spec_data.get('description', ''),
+                    'auth_type': data.get('auth_type') or spec_data.get('auth_type', 's2s'),
+                    'request_schema': _parse_json(data.get('request_schema')) or {},
+                    'response_schema': _parse_json(data.get('response_schema')) or {},
+                    'error_responses': _parse_json(data.get('error_responses')) or [],
+                    'spec_data': spec_data,
+                    'rate_limit': _parse_json(data.get('rate_limit')),
+                    'idempotency': _parse_json(data.get('idempotency')),
+                    'related_webhooks': _parse_json(data.get('related_webhooks')) or [],
+                    'related_flows': _parse_json(data.get('related_flows')) or [],
+                    'code_examples': _parse_json(data.get('code_examples')) or {},
+                    'sandbox_notes': data.get('sandbox_notes')
                 }
             return None
     
@@ -134,27 +132,46 @@ class Database:
                                    source_doc_id: str = None):
         """Insert or update endpoint specification."""
         async with self.pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO endpoint_specs 
-                (endpoint_id, method, path, description, auth_type,
-                 request_schema, response_schema, error_responses, spec_data,
-                 is_ground_truth, source_doc_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                ON CONFLICT (endpoint_id) DO UPDATE SET
-                    method = EXCLUDED.method,
-                    path = EXCLUDED.path,
-                    description = EXCLUDED.description,
-                    request_schema = EXCLUDED.request_schema,
-                    response_schema = EXCLUDED.response_schema,
-                    error_responses = EXCLUDED.error_responses,
-                    spec_data = EXCLUDED.spec_data,
-                    is_ground_truth = EXCLUDED.is_ground_truth,
-                    source_doc_id = EXCLUDED.source_doc_id,
-                    updated_at = CURRENT_TIMESTAMP
-            """, endpoint_id, method, path, description, auth_type,
-                json.dumps(request_schema), json.dumps(response_schema),
-                json.dumps(error_responses), json.dumps(spec_data),
-                is_ground_truth, source_doc_id)
+            column_rows = await conn.fetch(
+                """SELECT column_name
+                   FROM information_schema.columns
+                   WHERE table_name = 'endpoint_specs'"""
+            )
+            existing_columns = {row['column_name'] for row in column_rows}
+
+            values = {
+                'endpoint_id': endpoint_id,
+                'method': method,
+                'path': path,
+                'description': description,
+                'auth_type': auth_type,
+                'request_schema': json.dumps(request_schema),
+                'response_schema': json.dumps(response_schema),
+                'error_responses': json.dumps(error_responses),
+                'spec_data': json.dumps(spec_data),
+                'is_ground_truth': is_ground_truth,
+                'source_doc_id': source_doc_id,
+            }
+            values = {key: value for key, value in values.items() if key in existing_columns}
+            columns = list(values.keys())
+            placeholders = [f"${index}" for index in range(1, len(columns) + 1)]
+            update_columns = [col for col in columns if col != 'endpoint_id']
+            update_clause = ", ".join([f"{col} = EXCLUDED.{col}" for col in update_columns])
+            if 'updated_at' in existing_columns:
+                update_clause = f"{update_clause}, updated_at = CURRENT_TIMESTAMP" if update_clause else "updated_at = CURRENT_TIMESTAMP"
+
+            conflict_clause = (
+                f"DO UPDATE SET {update_clause}"
+                if update_clause else
+                "DO NOTHING"
+            )
+
+            await conn.execute(
+                f"""INSERT INTO endpoint_specs ({', '.join(columns)})
+                    VALUES ({', '.join(placeholders)})
+                    ON CONFLICT (endpoint_id) {conflict_clause}""",
+                *[values[column] for column in columns],
+            )
     
     async def insert_integration_flow(self, flow_id: str, name: str,
                                       use_case: str, description: str,
@@ -423,38 +440,146 @@ class Database:
         async with self.pool.acquire() as conn:
             embedding_array = query_embedding
 
-            if namespace:
-                rows = await conn.fetch(
-                    """SELECT tc.doc_id,
-                              tc.chunk_index,
-                              tc.chunk_text,
-                              tc.namespace,
-                              d.filename,
-                              1 - (tc.embedding <=> $1::vector) as similarity
-                       FROM text_chunks tc
-                       JOIN documents d ON tc.doc_id = d.doc_id
-                       WHERE tc.namespace = $2 AND tc.embedding IS NOT NULL
-                       ORDER BY tc.embedding <=> $1::vector
-                       LIMIT $3""",
-                    embedding_array, namespace, limit
-                )
-            else:
-                rows = await conn.fetch(
-                    """SELECT tc.doc_id,
-                              tc.chunk_index,
-                              tc.chunk_text,
-                              tc.namespace,
-                              d.filename,
-                              1 - (tc.embedding <=> $1::vector) as similarity
-                       FROM text_chunks tc
-                       JOIN documents d ON tc.doc_id = d.doc_id
-                       WHERE tc.embedding IS NOT NULL
-                       ORDER BY tc.embedding <=> $1::vector
-                       LIMIT $2""",
-                    embedding_array, limit
-                )
+            try:
+                if namespace:
+                    rows = await conn.fetch(
+                        """SELECT tc.doc_id,
+                                  tc.chunk_index,
+                                  tc.chunk_text,
+                                  tc.namespace,
+                                  d.filename,
+                                  1 - (tc.embedding <=> $1::vector) as similarity
+                           FROM text_chunks tc
+                           JOIN documents d ON tc.doc_id = d.doc_id
+                           WHERE tc.namespace = $2 AND tc.embedding IS NOT NULL
+                           ORDER BY tc.embedding <=> $1::vector
+                           LIMIT $3""",
+                        embedding_array, namespace, limit
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """SELECT tc.doc_id,
+                                  tc.chunk_index,
+                                  tc.chunk_text,
+                                  tc.namespace,
+                                  d.filename,
+                                  1 - (tc.embedding <=> $1::vector) as similarity
+                           FROM text_chunks tc
+                           JOIN documents d ON tc.doc_id = d.doc_id
+                           WHERE tc.embedding IS NOT NULL
+                           ORDER BY tc.embedding <=> $1::vector
+                           LIMIT $2""",
+                        embedding_array, limit
+                    )
 
-            return [dict(r) for r in rows]
+                return [dict(r) for r in rows]
+            except Exception:
+                # Most local schemas store embeddings as JSONB instead of pgvector.
+                # Keep semantic search usable by ranking in Python when vector ops are unavailable.
+                if namespace:
+                    rows = await conn.fetch(
+                        """SELECT tc.doc_id, tc.chunk_index, tc.chunk_text, tc.namespace,
+                                  tc.embedding, d.filename
+                           FROM text_chunks tc
+                           JOIN documents d ON tc.doc_id = d.doc_id
+                           WHERE tc.namespace = $1 AND tc.embedding IS NOT NULL""",
+                        namespace
+                    )
+                else:
+                    rows = await conn.fetch(
+                        """SELECT tc.doc_id, tc.chunk_index, tc.chunk_text, tc.namespace,
+                                  tc.embedding, d.filename
+                           FROM text_chunks tc
+                           JOIN documents d ON tc.doc_id = d.doc_id
+                           WHERE tc.embedding IS NOT NULL"""
+                    )
+
+                ranked = []
+                for row in rows:
+                    embedding = _parse_json(row["embedding"])
+                    similarity = self._cosine_similarity(query_embedding, embedding)
+                    if similarity is None:
+                        continue
+
+                    item = dict(row)
+                    item.pop("embedding", None)
+                    item["similarity"] = similarity
+                    ranked.append(item)
+
+                ranked.sort(key=lambda r: r["similarity"], reverse=True)
+                return ranked[:limit]
+
+    async def search_api_business_use_cases(self, query_embedding: List[float],
+                                            limit: int = 10) -> List[Dict]:
+        """Search API specs by business-use-case embedding similarity."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT endpoint_id, method, path, api_version, summary,
+                          description, business_use_case, business_use_case_embedding
+                   FROM api_specs_v2
+                   WHERE business_use_case_embedding IS NOT NULL
+                     AND business_use_case IS NOT NULL"""
+            )
+
+            ranked = []
+            for row in rows:
+                embedding = _parse_json(row["business_use_case_embedding"])
+                similarity = self._cosine_similarity(query_embedding, embedding)
+                if similarity is None:
+                    continue
+
+                item = dict(row)
+                item.pop("business_use_case_embedding", None)
+                item["similarity"] = similarity
+                ranked.append(item)
+
+            ranked.sort(key=lambda r: r["similarity"], reverse=True)
+            return ranked[:limit]
+
+    async def search_api_business_use_cases_text(self, query: str,
+                                                 limit: int = 10) -> List[Dict]:
+        """Keyword fallback search over API business-use-case text."""
+        stop_words = {
+            "the", "and", "for", "with", "from", "that", "this", "when",
+            "into", "api", "apis", "account", "customer", "merchant",
+        }
+        tokens = [
+            token for token in re.findall(r"[a-zA-Z0-9]+", query.lower())
+            if len(token) > 1 and token not in stop_words
+        ][:8]
+        if not tokens:
+            tokens = [query]
+
+        params = [f"%{token}%" for token in tokens]
+        match_clauses = []
+        score_parts = []
+        for index in range(1, len(params) + 1):
+            clause = (
+                f"(business_use_case ILIKE ${index} OR summary ILIKE ${index} "
+                f"OR description ILIKE ${index} OR path ILIKE ${index})"
+            )
+            match_clauses.append(clause)
+            score_parts.extend([
+                f"CASE WHEN business_use_case ILIKE ${index} THEN 4 ELSE 0 END",
+                f"CASE WHEN summary ILIKE ${index} THEN 2 ELSE 0 END",
+                f"CASE WHEN path ILIKE ${index} THEN 2 ELSE 0 END",
+                f"CASE WHEN description ILIKE ${index} THEN 1 ELSE 0 END",
+            ])
+
+        limit_param = len(params) + 1
+        sql = f"""
+            SELECT endpoint_id, method, path, api_version, summary,
+                   description, business_use_case,
+                   ({' + '.join(score_parts)}) AS keyword_score
+            FROM api_specs_v2
+            WHERE {' OR '.join(match_clauses)}
+            ORDER BY keyword_score DESC, endpoint_id
+            LIMIT ${limit_param}
+        """
+
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params, limit)
+            return [dict(row) for row in rows]
 
     async def get_document_content(self, doc_id: str) -> Optional[str]:
         """Get document content by ID."""
@@ -527,7 +652,9 @@ class Database:
             tables = [
                 'documents', 'text_chunks', 'endpoint_specs', 'error_codes',
                 'integration_flows', 'webhook_events', 'code_templates',
-                'test_scenarios', 'known_issues'
+                'test_scenarios', 'known_issues', 'contextual_embeddings',
+                'api_specs_v2', 'api_headers', 'api_fields', 'api_samples',
+                'api_conditions'
             ]
             for table in tables:
                 try:
@@ -536,6 +663,30 @@ class Database:
                 except:
                     stats[table] = 0
             return stats
+
+    @staticmethod
+    def _cosine_similarity(left: List[float], right: Any) -> Optional[float]:
+        """Compute cosine similarity for JSONB/list embeddings."""
+        if isinstance(right, str):
+            try:
+                right = json.loads(right)
+            except Exception:
+                return None
+
+        if not isinstance(right, list) or not left or len(left) != len(right):
+            return None
+
+        try:
+            dot = sum(float(a) * float(b) for a, b in zip(left, right))
+            left_norm = math.sqrt(sum(float(a) * float(a) for a in left))
+            right_norm = math.sqrt(sum(float(b) * float(b) for b in right))
+        except (TypeError, ValueError):
+            return None
+
+        if left_norm == 0 or right_norm == 0:
+            return None
+
+        return dot / (left_norm * right_norm)
 
 
 # Global database instance

@@ -3,9 +3,9 @@
 ## Current Status
 
 ✅ MCP Server code is ready at `src/server/mcp_server.py`
-✅ 15 tools implemented and working
+✅ 23 hosted tools implemented for client query resolution, integration guidance, testing, and debugging
 ✅ Database connected and populated
-✅ All 445 document chunks embedded
+✅ Current database has 20 documents, 2,950 text chunks, 2,702 contextual embeddings, 13 legacy endpoint specs, and 7 v2 API specs
 
 ## Starting the Server
 
@@ -57,9 +57,9 @@ Add this to your OpenCode MCP settings:
       "env": {
         "DATABASE_URL": "postgresql://postgres@localhost:5432/mcp_product_context",
         "LITELLM_LLM_API_BASE": "https://grid.ai.juspay.net/",
-        "LITELLM_LLM_API_KEY": "sk-SWQkUi_-P4DKnLX6IdowJQ",
+        "LITELLM_LLM_API_KEY": "<set-from-env>",
         "LITELLM_EMBEDDING_API_BASE": "https://grid.ai.juspay.net/",
-        "LITELLM_EMBEDDING_API_KEY": "sk-v9aJ7JUEVd_EQLKdXBMlXw"
+        "LITELLM_EMBEDDING_API_KEY": "<set-from-env>"
       }
     }
   }
@@ -78,7 +78,53 @@ Or use SSE transport:
 }
 ```
 
-## Available Tools (15 Total)
+Compatibility endpoint:
+
+```json
+{
+  "mcpServers": {
+    "merchant-mcp": {
+      "url": "http://localhost:8000/newton-hs"
+    }
+  }
+}
+```
+
+Supported MCP endpoints:
+
+- `/sse`: GET for SSE, POST for JSON-RPC compatibility
+- `/newton-hs`: GET for SSE, POST for JSON-RPC compatibility
+- `/mcp`: GET for SSE, POST for JSON-RPC compatibility
+- `/tools/call`: POST for direct tool calls or JSON-RPC compatibility
+
+## Management Script
+
+Use the consolidated management script for day-to-day operations:
+
+```bash
+# Host the HTTP tool server
+python3 scripts/manage_mcp.py serve --host 0.0.0.0 --port 8000 --reload
+
+# Ingest a document/API spec into documents, text_chunks, endpoint_specs, and error_codes as applicable
+python3 scripts/manage_mcp.py ingest ./docs/API_COOKBOOK.md
+python3 scripts/manage_mcp.py ingest ./api_specs/openapi.json --type json
+
+# Ingest generated S2S API documentation from docs.zip into documents, chunks, api_specs_v2, and endpoint_specs
+python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/docs.zip
+python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/docs.zip --dry-run
+
+# Add/update a rich API specification
+python3 scripts/manage_mcp.py add-api-spec ./api_specs/my_api_spec_v2.json
+
+# Add direct context for client Q&A
+python3 scripts/manage_mcp.py add-context --title "Merchant onboarding note" --content-file ./notes/onboarding.md
+
+# Inspect database state
+python3 scripts/manage_mcp.py tables
+python3 scripts/manage_mcp.py stats
+```
+
+## Agent-Facing Tools (23 Total)
 
 ### Understanding Phase
 - `get_api_spec` - Get complete API specification
@@ -96,12 +142,24 @@ Or use SSE transport:
 - `test_sandbox` - Test API calls with annotated responses
 - `explain_error` - Explain error codes with fixes
 - `get_test_cases` - Get test scenarios
-- `check_integration` - Check integration readiness
+- `run_integration_check` - Check integration readiness
 
 ### Debugging Phase
 - `diagnose_webhook` - Diagnose webhook issues
 - `lookup_error_map` - Look up error code context
 - `search_known_issues` - Search support KB
+
+### API Specs
+- `list_api_specs` - List available latest API specs
+- `search_api_use_cases` - Find the right API for a business scenario using business-use-case vector search
+- `get_api_spec` - Read the latest available rich API spec for an endpoint
+
+### Document Search & Client Q&A
+- `search_documents` - Hybrid document and contextual search
+- `search_contextual_embeddings` - Search generated Q&A context
+- `answer_question` - Answer client questions from ingested context
+
+Ingestion and context-loading are intentionally not exposed as MCP tools. Use `scripts/manage_mcp.py ingest`, `ingest-docs-zip`, `add-api-spec`, and `add-context` from an operator shell instead.
 
 ## Testing the Server
 
@@ -116,16 +174,26 @@ curl http://localhost:8000/tools
 curl -X POST http://localhost:8000/tools/call \
   -H "Content-Type: application/json" \
   -d '{"name": "get_api_spec", "arguments": {"endpoint_id": "orders.create"}}'
+
+# MCP JSON-RPC call
+curl -X POST http://localhost:8000/newton-hs \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_api_use_cases","arguments":{"query":"debit customer UPI account for QR payment","limit":3}}}'
+
+curl -X POST http://localhost:8000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 ```
 
 ## Data Ingested
 
-- **3 PDFs** with 445 chunks (100% embedded)
-- **10 Endpoints** (3 Juspay + 7 IBMB)
-- **253 Error codes** (18 GT + 235 IBMB)
-- **3 Integration flows**
-- **4 Webhook events**
-- **3 Test scenarios**
+- **20 documents**
+- **2,950 text chunks**
+- **2,702 contextual embeddings**
+- **13 legacy endpoint specs**
+- **7 v2 API specs**
+- **254 error codes**
+- **6 integration flows**
 
 ## Troubleshooting
 

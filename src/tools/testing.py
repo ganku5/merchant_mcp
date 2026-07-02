@@ -97,6 +97,9 @@ async def test_sandbox(endpoint_id: str, payload: dict, api_key: Optional[str] =
         "Handle webhook for status updates",
         "Poll status endpoint if webhooks unavailable"
     ]
+
+    annotations_text = "\n".join(f"- {a}" for a in annotations)
+    next_steps_text = "\n".join(f"{i+1}. {step}" for i, step in enumerate(next_steps))
     
     response_text = f"""## Sandbox Test Result: {endpoint_id}
 
@@ -111,10 +114,10 @@ async def test_sandbox(endpoint_id: str, payload: dict, api_key: Optional[str] =
 ```
 
 ### Field Annotations
-{"\n".join(f"- {a}" for a in annotations)}
+{annotations_text}
 
 ### Next Steps
-{"\n".join(f"{i+1}. {step}" for i, step in enumerate(next_steps))}
+{next_steps_text}
 
 **Note**: This is a simulated response. In production, connect to actual sandbox API."""
     
@@ -173,6 +176,14 @@ Provide:
         "system_error": "🔧",
         "unknown": "❓"
     }.get(error_data.get('category', 'unknown'), "❓")
+
+    common_causes_text = "\n".join(
+        f"- {cause}" for cause in error_data.get('common_causes', ['Unknown'])
+    )
+    fix_suggestions_text = "\n".join(
+        f"{i+1}. {suggestion}"
+        for i, suggestion in enumerate(error_data.get('fix_suggestions', ['Contact support']))
+    )
     
     result = f"""## Error Explanation: {error_code} {category_emoji}
 
@@ -182,10 +193,10 @@ Provide:
 {error_data.get('description', 'No description available')}
 
 ### Common Causes
-{"\n".join(f"- {cause}" for cause in error_data.get('common_causes', ['Unknown']))}
+{common_causes_text}
 
 ### Fix Suggestions
-{"\n".join(f"{i+1}. {suggestion}" for i, suggestion in enumerate(error_data.get('fix_suggestions', ['Contact support'])))}
+{fix_suggestions_text}
 
 ### Retry Guidance
 {error_data.get('retry_guidance', 'No specific retry guidance available')}

@@ -151,6 +151,8 @@ class GenericIngester:
             'yaml': self._ingest_yaml,
             'markdown': self._ingest_text,
             'text': self._ingest_text,
+            'endpoints': self._ingest_csv,
+            'errors': self._ingest_csv,
             'excel': self._ingest_csv,  # Convert excel to CSV-like processing
         }
         
@@ -303,10 +305,9 @@ class GenericIngester:
         is_errors = any(k in sample_keys_lower for k in ['error codes', 'error_code', 'errorcode', 'code', 'error']) and \
                     any(k in sample_keys_lower for k in ['description', 'desc', 'message'])
         
-        if is_errors:
+        if file_type == "errors" or is_errors:
             return await self._ingest_error_csv(rows, doc_id, filepath)
-        else:
-            return await self._ingest_endpoint_csv(rows, doc_id, filepath)
+        return await self._ingest_endpoint_csv(rows, doc_id, filepath)
     
     async def _ingest_error_csv(self, rows: List[Dict], doc_id: str, filepath: str) -> Dict:
         """Ingest CSV as error codes."""
@@ -398,6 +399,41 @@ class GenericIngester:
         self.results["endpoints"].extend([r.get(name_col) for r in rows if r.get(name_col)])
         
         return {"doc_id": doc_id, "type": "endpoints", "count": count}
+
+    async def _ingest_error_json(self, rows: List[Dict], doc_id: str, filepath: str) -> Dict:
+        """Ingest JSON array as error codes."""
+        count = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            error_code = str(row.get('error_code') or row.get('code') or row.get('error') or '').strip()
+            description = str(row.get('description') or row.get('message') or '').strip()
+            if not error_code:
+                continue
+
+            try:
+                await database.insert_error_code(
+                    error_code=error_code,
+                    http_status=int(row.get('http_status') or row.get('status') or 400),
+                    category=row.get('category') or self._categorize_error(error_code, description),
+                    message=(row.get('message') or description or error_code)[:200],
+                    description=description,
+                    common_causes=row.get('common_causes') or [],
+                    fix_suggestions=row.get('fix_suggestions') or [],
+                    error_data={"source": "json", "row": row},
+                    source_doc_id=None
+                )
+                count += 1
+            except Exception as e:
+                print(f"  ⚠️  {error_code}: {e}")
+
+        print(f"✓ Ingested {count} error codes")
+        self.results["error_codes"].extend([
+            r.get('error_code') or r.get('code') for r in rows if isinstance(r, dict)
+        ])
+
+        return {"doc_id": doc_id, "type": "error_codes", "count": count}
     
     async def _ingest_json(self, filepath: str, doc_id: str, file_type: str) -> Dict:
         """Ingest JSON (OpenAPI spec or endpoint definitions)."""
@@ -409,7 +445,16 @@ class GenericIngester:
             data = json.load(f)
         
         # Detect if OpenAPI spec
-        if 'openapi' in data or 'swagger' in data or 'paths' in data:
+        if file_type == 'errors':
+            print("Detected: Error codes JSON")
+            rows = data if isinstance(data, list) else data.get('errors', data.get('error_codes', []))
+            if not isinstance(rows, list):
+                rows = []
+            return await self._ingest_error_json(rows, doc_id, filepath)
+        elif file_type == 'endpoints' and isinstance(data, list):
+            print("Detected: Endpoint list JSON")
+            return await self._ingest_endpoint_list(data, doc_id, filepath)
+        elif isinstance(data, dict) and ('openapi' in data or 'swagger' in data or 'paths' in data):
             print("Detected: OpenAPI/Swagger specification")
             return await self._ingest_openapi(data, doc_id, filepath)
         elif isinstance(data, list):

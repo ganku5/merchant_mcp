@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 ENV_FILE = Path("/home/ganesh/context_mcp/load.env")
 
@@ -10,10 +11,10 @@ class Config:
     """Application configuration."""
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres@localhost:5432/merchant_mcp"
+    DATABASE_URL: str = "postgresql://postgres@localhost:5432/mcp_product_context"
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
-    DB_NAME: str = "merchant_mcp"
+    DB_NAME: str = "mcp_product_context"
     DB_USER: str = "postgres"
     DB_PASSWORD: str = ""
     
@@ -71,6 +72,9 @@ class Config:
                         elif key == "DB_PASSWORD":
                             cls.DB_PASSWORD = value
         
+        cls._apply_database_url()
+        cls._apply_database_env_overrides()
+
         # Override with actual environment variables if set
         for attr in dir(cls):
             if not attr.startswith("_"):
@@ -80,6 +84,42 @@ class Config:
                         setattr(cls, attr, int(env_val))
                     else:
                         setattr(cls, attr, env_val)
+
+        cls._apply_database_url()
+
+    @classmethod
+    def _apply_database_url(cls):
+        """Derive asyncpg connection fields from DATABASE_URL when present."""
+        if not cls.DATABASE_URL:
+            return
+
+        parsed = urlparse(cls.DATABASE_URL)
+        if parsed.scheme not in {"postgres", "postgresql"}:
+            return
+
+        if parsed.hostname:
+            cls.DB_HOST = parsed.hostname
+        if parsed.port:
+            cls.DB_PORT = parsed.port
+        if parsed.path and parsed.path != "/":
+            cls.DB_NAME = parsed.path.lstrip("/")
+        if parsed.username:
+            cls.DB_USER = unquote(parsed.username)
+        if parsed.password:
+            cls.DB_PASSWORD = unquote(parsed.password)
+
+    @classmethod
+    def _apply_database_env_overrides(cls):
+        """Let explicit DB_* environment variables override DATABASE_URL parts."""
+        for attr in ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"):
+            env_val = os.environ.get(attr)
+            if env_val is None:
+                continue
+
+            if attr == "DB_PORT":
+                cls.DB_PORT = int(env_val)
+            else:
+                setattr(cls, attr, env_val)
 
 
 Config.load_env_file()

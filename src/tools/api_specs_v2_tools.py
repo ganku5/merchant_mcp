@@ -26,17 +26,25 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                 spec_result = await db_conn.fetchrow("""
                     INSERT INTO api_specs_v2 (
                         endpoint_id, method, path, api_version, description, summary,
-                        documentation_url, changelog, rate_limit, idempotency
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        documentation_url, changelog, rate_limit, idempotency,
+                        business_use_case, business_use_case_embedding,
+                        source_doc_id, source_file, source_hash
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     ON CONFLICT (endpoint_id) DO UPDATE SET
                         method = EXCLUDED.method,
                         path = EXCLUDED.path,
+                        api_version = EXCLUDED.api_version,
                         description = EXCLUDED.description,
                         summary = EXCLUDED.summary,
                         documentation_url = EXCLUDED.documentation_url,
                         changelog = EXCLUDED.changelog,
                         rate_limit = EXCLUDED.rate_limit,
                         idempotency = EXCLUDED.idempotency,
+                        business_use_case = EXCLUDED.business_use_case,
+                        business_use_case_embedding = EXCLUDED.business_use_case_embedding,
+                        source_doc_id = EXCLUDED.source_doc_id,
+                        source_file = EXCLUDED.source_file,
+                        source_hash = EXCLUDED.source_hash,
                         updated_at = CURRENT_TIMESTAMP
                     RETURNING spec_id
                 """,
@@ -49,7 +57,12 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                     spec.get('documentation_url'),
                     json.dumps(spec.get('changelog', [])),
                     json.dumps(spec.get('rate_limit', {})),
-                    json.dumps(spec.get('idempotency', {}))
+                    json.dumps(spec.get('idempotency', {})),
+                    spec.get('business_use_case'),
+                    json.dumps(spec.get('business_use_case_embedding')) if spec.get('business_use_case_embedding') else None,
+                    spec.get('source_doc_id'),
+                    spec.get('source_file'),
+                    spec.get('source_hash')
                 )
                 
                 spec_id = spec_result['spec_id']
@@ -109,6 +122,8 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                     for i, field in enumerate(fields):
                         field_name = field.get('field_name') or field.get('name')
                         field_type = field.get('field_type') or field.get('type', 'string')
+                        effective_parent_path = field.get('parent_path', parent_path)
+                        display_order = field.get('display_order', start_order + i)
                         
                         # Skip if field_name is None or empty
                         if not field_name:
@@ -127,7 +142,7 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                             ON CONFLICT (spec_id, context, full_path) DO NOTHING
                             RETURNING field_id
                         """,
-                            spec_id, context, parent_path, field_name,
+                            spec_id, context, effective_parent_path, field_name,
                             field_type,
                             field.get('subtype'),
                             field.get('format'),
@@ -144,18 +159,18 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                             json.dumps(field.get('default_value')) if field.get('default_value') is not None else None,
                             field.get('is_sensitive', False),
                             field.get('encoding'),
-                            start_order + i
+                            display_order
                         )
                         
                         # Handle nested fields
                         nested_fields = field.get('fields', [])
                         if nested_fields:
-                            new_parent = f"{parent_path}.{field_name}" if parent_path else field_name
+                            new_parent = f"{effective_parent_path}.{field_name}" if effective_parent_path else field_name
                             await insert_fields(nested_fields, context, new_parent, 0)
                         
                         # Handle array item fields
                         if field_type == 'array' and field.get('item_fields'):
-                            new_parent = f"{parent_path}.{field_name}[*]" if parent_path else f"{field_name}[*]"
+                            new_parent = f"{effective_parent_path}.{field_name}[*]" if effective_parent_path else f"{field_name}[*]"
                             await insert_fields(field.get('item_fields'), context, new_parent, 0)
                 
                 # Insert request fields
@@ -243,8 +258,12 @@ async def get_api_spec_v2(endpoint_id: str, include_samples: bool = True) -> dic
             
             if spec_row['summary']:
                 sections.append(f"**Summary:** {spec_row['summary']}")
-            
+
             sections.append(f"\n## Description\n{spec_row['description'] or 'No description'}")
+
+            spec_data = dict(spec_row)
+            if spec_data.get('business_use_case'):
+                sections.append(f"\n## Business Use Case\n{spec_data['business_use_case']}")
             
             # Get headers
             headers = await db_conn.fetch("""

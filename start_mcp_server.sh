@@ -1,11 +1,10 @@
 #!/bin/bash
 #
 # MCP Server Startup Script
-# Usage: ./start_mcp_server.sh [http|sse|stdio] [port]
+# Usage: ./start_mcp_server.sh [port]
 #
 
-TRANSPORT=${1:-http}
-PORT=${2:-8000}
+PORT=${1:-8000}
 HOST="0.0.0.0"
 
 cd "$(dirname "$0")"
@@ -18,7 +17,7 @@ echo "  Merchant Integration MCP Server"
 echo "=========================================="
 echo ""
 echo "Starting server with:"
-echo "  Transport: $TRANSPORT"
+echo "  Transport: HTTP"
 echo "  Host: $HOST (all interfaces)"
 echo "  Port: $PORT"
 echo ""
@@ -35,4 +34,4 @@ echo "=========================================="
 echo ""
 
 # Start the server
-python3 src/server/mcp_final.py --transport http --host $HOST --port $PORT
+python3 scripts/manage_mcp.py serve --host $HOST --port $PORT

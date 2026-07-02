@@ -7,12 +7,12 @@ from ..utils.database import database
 from ..utils.llm import llm_client
 
 
-async def get_api_spec(endpoint_id: str, version: str = "v1", include_samples: bool = True) -> dict:
+async def get_api_spec(endpoint_id: str, version: Optional[str] = None, include_samples: bool = True) -> dict:
     """Get complete API specification for an endpoint.
 
     Args:
         endpoint_id: Unique endpoint identifier (e.g., 'ibmb.merchant.transaction.init')
-        version: API version (default: v1)
+        version: Optional API version. When omitted, the latest available version is used.
         include_samples: Whether to include request/response samples (v2 APIs only)
 
     Returns:
@@ -27,13 +27,14 @@ async def get_api_spec(endpoint_id: str, version: str = "v1", include_samples: b
     # First try v2 API specs (richer format with headers, samples, conditions)
     try:
         async with conn.acquire() as db_conn:
-            # Query with endpoint_id and optionally api_version
-            spec_row = await db_conn.fetchrow("""
-                SELECT * FROM api_specs_v2
-                WHERE endpoint_id = $1 AND api_version = $2
-            """, endpoint_id, version)
+            if version:
+                spec_row = await db_conn.fetchrow("""
+                    SELECT * FROM api_specs_v2
+                    WHERE endpoint_id = $1 AND api_version = $2
+                """, endpoint_id, version)
+            else:
+                spec_row = None
 
-            # If not found with specific version, try without version constraint
             if not spec_row:
                 spec_row = await db_conn.fetchrow("""
                     SELECT * FROM api_specs_v2
@@ -75,13 +76,14 @@ async def get_api_spec(endpoint_id: str, version: str = "v1", include_samples: b
         }
 
     # Return legacy format response
-    return await _get_api_spec_legacy(spec, endpoint_id, version)
+    return await _get_api_spec_legacy(spec, endpoint_id, version or spec.get("version", "latest"))
 
 
 async def _get_api_spec_v2(db_conn, spec_row, include_samples: bool) -> dict:
     """Get API spec from v2 format (richer data)."""
     import json
 
+    spec_data = dict(spec_row)
     spec_id = spec_row['spec_id']
     endpoint_id = spec_row['endpoint_id']
 
@@ -97,6 +99,9 @@ async def _get_api_spec_v2(db_conn, spec_row, include_samples: bool) -> dict:
         sections.append(f"**Summary:** {spec_row['summary']}")
 
     sections.append(f"\n## Description\n{spec_row['description'] or 'No description'}")
+
+    if spec_data.get('business_use_case'):
+        sections.append(f"\n## Business Use Case\n{spec_data['business_use_case']}")
 
     # Get headers
     headers = await db_conn.fetch("""

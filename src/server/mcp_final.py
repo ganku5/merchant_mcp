@@ -458,45 +458,11 @@ def search_known_issues(query: str) -> str:
     return _extract(_run_async(fn(query, None)))
 
 
-# ===== API Specs V2 Tools =====
-
-@mcp.tool()
-def insert_api_spec_v2(spec: dict) -> str:
-    """Insert complete API spec with headers, conditional fields, nested structures, and samples.
-    
-    Args:
-        spec: Complete API specification including:
-          - endpoint_id: Unique identifier
-          - method: HTTP method (GET, POST, PUT, DELETE, PATCH)
-          - path: API path
-          - api_version: Version string (default: v1)
-          - description: Human-readable description
-          - headers: {request: [...], response: [...]}
-          - request_fields: List of field definitions with nesting support
-          - response_fields: List of response field definitions
-          - conditions: Conditional logic definitions
-          - samples: Complete request/response examples
-          - rate_limit: Rate limiting configuration
-          - idempotency: Idempotency settings
-    """
-    from src.tools.api_specs_v2_tools import insert_api_spec_v2 as fn
-    return _extract(_run_async(fn(spec)))
+# ===== API Specs Tools =====
 
 
 @mcp.tool()
-def get_api_spec_v2(endpoint_id: str, include_samples: bool = True) -> str:
-    """Get complete API spec with headers, fields, conditions, and samples.
-    
-    Args:
-        endpoint_id: The endpoint identifier
-        include_samples: Whether to include request/response examples
-    """
-    from src.tools.api_specs_v2_tools import get_api_spec_v2 as fn
-    return _extract(_run_async(fn(endpoint_id, include_samples)))
-
-
-@mcp.tool()
-def list_api_specs_v2(limit: int = 20) -> str:
+def list_api_specs(limit: int = 20) -> str:
     """List all available API specifications (latest versions only).
     
     Args:
@@ -504,35 +470,6 @@ def list_api_specs_v2(limit: int = 20) -> str:
     """
     from src.tools.api_specs_v2_tools import list_api_specs_v2 as fn
     return _extract(_run_async(fn(limit)))
-
-
-@mcp.tool()
-def list_api_versions(endpoint_id: str) -> str:
-    """List all available versions for a specific API endpoint.
-    
-    Args:
-        endpoint_id: The API endpoint identifier (e.g., 'ibmb.merchant.transaction.init')
-        
-    Returns:
-        List of all versions with stats (fields, headers, samples) and timestamps.
-        Shows which version is the latest.
-    """
-    from src.tools.api_specs_v2_tools import list_api_versions as fn
-    return _extract(_run_async(fn(endpoint_id)))
-
-
-@mcp.tool()
-def generate_contextual_embeddings(doc_id: str) -> str:
-    """Generate contextual embeddings (Q&A pairs) for a document.
-    
-    Processes all text chunks of a document, generates question-answer pairs
-    using LLM, and creates enhanced embeddings for better semantic search.
-    
-    Args:
-        doc_id: The document ID to process (e.g., 'ibmb-api-auth-jwe')
-    """
-    from src.tools.contextual_embedding_generator import generate_contextual_embeddings as fn
-    return _extract(_run_async(fn(doc_id)))
 
 
 @mcp.tool()
@@ -755,6 +692,16 @@ def run_stress_test(
         endpoint_id, payload, start_concurrent, max_concurrent,
         step_size, target_latency_ms, target_error_rate
     )))
+
+
+# ===== Agent Q&A Tools =====
+
+
+@mcp.tool()
+def answer_question(question: str, doc_id: str = None, limit: int = 6) -> str:
+    """Answer a client question using ingested MCP documentation context."""
+    from src.tools.admin_tools import answer_question as fn
+    return _extract(_run_async(fn(question, doc_id, limit)))
 
 
 # ===== System =====

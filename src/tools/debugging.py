@@ -64,14 +64,21 @@ async def diagnose_webhook(headers: dict, body: str, expected_signature: str = N
     if "Signature verification failed" in str(issues):
         fixes.append("Verify webhook secret is correct")
         fixes.append("Ensure raw body bytes are used for signature computation")
+
+    issues_text = "\n".join(issues)
+    fixes_text = (
+        "\n".join(f"{i+1}. {fix}" for i, fix in enumerate(fixes))
+        if fixes
+        else "No specific fixes needed - webhook looks good!"
+    )
     
     result_text = f"""## Webhook Diagnosis
 
 ### Issues Found
-{"\n".join(issues)}
+{issues_text}
 
 ### Suggested Fixes
-{"\n".join(f"{i+1}. {fix}" for i, fix in enumerate(fixes)) if fixes else "No specific fixes needed - webhook looks good!"}
+{fixes_text}
 
 ### Raw Headers
 ```json
