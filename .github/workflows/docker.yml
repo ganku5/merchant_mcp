@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main
-      - master
+      - latest
+      - uv-nix-setup
   workflow_dispatch:
 
 env:
