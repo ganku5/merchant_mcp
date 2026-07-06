@@ -19,9 +19,9 @@ services:
       timeout: 5s
       retries: 5
 
-  # Merchant MCP Server (built via nix, loaded via docker load)
+  # Merchant MCP Server (pulled from GHCR, built via nix in CI)
   mcp-server:
-    image: merchant-mcp:latest
+    image: ghcr.io/ganku5/merchant-mcp:latest
     container_name: merchant-mcp-server
     network_mode: host
     environment:
