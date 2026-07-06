@@ -111,17 +111,34 @@ def cmd_serve(args):
     ]
     if args.reload:
         command.append("--reload")
-    return subprocess.call(command, cwd=PROJECT_ROOT)
+    try:
+        return subprocess.call(command, cwd=PROJECT_ROOT)
+    except KeyboardInterrupt:
+        return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Merchant MCP management script")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    ingest = subparsers.add_parser("ingest", help="Ingest a document, CSV, JSON, YAML, PDF, or OpenAPI spec")
+    ingest = subparsers.add_parser(
+        "ingest", help="Ingest a document, CSV, JSON, YAML, PDF, or OpenAPI spec"
+    )
     ingest.add_argument("filepath")
     ingest.add_argument("--doc-id")
-    ingest.add_argument("--type", choices=["pdf", "csv", "json", "yaml", "text", "markdown", "endpoints", "errors"])
+    ingest.add_argument(
+        "--type",
+        choices=[
+            "pdf",
+            "csv",
+            "json",
+            "yaml",
+            "text",
+            "markdown",
+            "endpoints",
+            "errors",
+        ],
+    )
     ingest.add_argument(
         "--with-contextual",
         action="store_false",
@@ -141,11 +158,15 @@ def build_parser() -> argparse.ArgumentParser:
     docs_zip.add_argument("--dry-run", action="store_true")
     docs_zip.set_defaults(async_handler=cmd_ingest_docs_zip)
 
-    add_spec = subparsers.add_parser("add-api-spec", help="Add or update a rich API spec from JSON")
+    add_spec = subparsers.add_parser(
+        "add-api-spec", help="Add or update a rich API spec from JSON"
+    )
     add_spec.add_argument("filepath")
     add_spec.set_defaults(async_handler=cmd_add_api_spec)
 
-    context = subparsers.add_parser("add-context", help="Add direct text context for client Q&A")
+    context = subparsers.add_parser(
+        "add-context", help="Add direct text context for client Q&A"
+    )
     context.add_argument("--title", required=True)
     source = context.add_mutually_exclusive_group(required=True)
     source.add_argument("--content")

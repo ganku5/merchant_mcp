@@ -2,60 +2,190 @@
 
 Production-ready Model Context Protocol (MCP) server for Juspay/IBMB payment integration support.
 
-[![Tools](https://img.shields.io/badge/tools-37-blue)](./docs/TOOLS.md)
-[![Phases](https://img.shields.io/badge/phases-4%2F4-green)]()
+[![Tools](https://img.shields.io/badge/tools-23-blue)](./docs/TOOLS.md)
 [![Status](https://img.shields.io/badge/status-production%20ready-success)]()
 
 ## Overview
 
-The Merchant Integration MCP Server provides AI coding assistants with 37 specialized tools to help merchants integrate payment APIs effectively. Built for the OpenCode ecosystem, it combines semantic search, intelligent code generation, comprehensive testing, and AI-powered debugging.
+The Merchant Integration MCP Server provides AI coding assistants with 23 specialized tools to help merchants integrate payment APIs effectively. Built for the OpenCode ecosystem, it combines semantic search, intelligent code generation, comprehensive testing, and AI-powered debugging.
 
 ### Key Capabilities
 
-- **🔍 Semantic Documentation Search** - Find relevant docs using vector embeddings
-- **🛠️ Intelligent Code Generation** - Multi-language SDKs with auth and error handling
-- **🧪 Comprehensive Testing** - Test suites, lifecycle tracking, sandbox integration
-- **🐛 AI-Powered Debugging** - Root cause analysis, webhook diagnostics, log analysis
-- **📚 Interactive Guides** - Personalized tutorials with visual flow diagrams
-- **🔐 Security-First** - Signature verification, payload validation, best practices
+- **Semantic Documentation Search** - Find relevant docs using vector embeddings
+- **Intelligent Code Generation** - Multi-language SDKs with auth and error handling
+- **Comprehensive Testing** - Test suites, lifecycle tracking, sandbox integration
+- **AI-Powered Debugging** - Root cause analysis, webhook diagnostics, log analysis
+- **Interactive Guides** - Personalized tutorials with visual flow diagrams
+- **Security-First** - Signature verification, payload validation, best practices
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.11+
 - PostgreSQL 14+ with pgvector extension
+- [uv](https://docs.astral.sh/uv/) (dependency manager)
 - Access to LiteLLM proxy (for embeddings)
 
-### Installation
+### Option A: uv (Nix-independent)
+
+Requires `uv` installed on your system. See [uv installation](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
-# Clone repository
-git clone https://github.com/juspay/merchant-mcp.git
-cd merchant-mcp
+# Clone
+git clone git@github.com:ganku5/merchant_mcp.git
+cd merchant_mcp/latest
 
-# Install dependencies
-pip install -r requirements.txt
+# Sync dependencies (creates .venv automatically)
+uv sync
 
 # Configure environment
-cp .env.example .env
-# Edit .env with your credentials
+cp .env.example .env  # edit with your DB + LiteLLM credentials
 
-# Initialize database
-python scripts/init_db.py
+# Run the server (default port 8000, or specify a port)
+uv run python -m uvicorn src.server.mcp_server:app --host 0.0.0.0 --port 8001 --reload
 
-# Ingest documentation
-python ingest.py docs/ibmb-api-guide.pdf
+# Or via the management script
+uv run python scripts/manage_mcp.py serve --host 0.0.0.0 --port 8001
+
+# Import check (no server start)
+uv run python -c "from src.server.mcp_server import app; print('OK')"
 ```
 
-### Running the Server
+### Option B: Nix + direnv (recommended for Nix users)
+
+Requires [Nix](https://nixos.org/) with flakes enabled and [direnv](https://direnv.net/).
 
 ```bash
-# STDIO mode (for OpenCode)
-python src/server/mcp_final.py
+# Clone
+git clone git@github.com:ganku5/merchant_mcp.git
+cd merchant_mcp/latest
 
-# Or with environment
-source .env && python src/server/mcp_final.py
+# direnv auto-loads the dev shell on cd
+direnv allow
+
+# Or manually enter the dev shell
+nix develop
+
+# Run (uv uses the Nix-provided Python)
+uv run python -m uvicorn src.server.mcp_server:app --host 0.0.0.0 --port 8001 --reload
+```
+
+The Nix flake also builds a standalone package (no dev shell needed):
+
+```bash
+# Build the production package
+nix build .#default
+
+# Run the built binary (works from any directory, no uv/nix develop needed)
+./result/bin/merchant-mcp
+```
+
+The Nix build uses [uv2nix](https://pyproject-nix.github.io/uv2nix/) to read `uv.lock` directly - no manual hash maintenance.
+
+### Option C: Docker (via Nix)
+
+Build a Docker image without a Dockerfile - Nix assembles the image from the same uv2nix venv:
+
+```bash
+# Build the image (outputs a tarball path)
+nix build .#dockerImage --no-link --print-out-paths
+
+# Load into Docker
+docker load < $(nix build .#dockerImage --no-link --print-out-paths)
+
+# Run (use --network host so the container can reach your host PostgreSQL)
+docker run --rm -d --name mcp-test \
+  --network host \
+  -e DATABASE_URL=postgresql://postgres@localhost:5432/mcp_product_context \
+  -e MCP_PORT=8002 \
+  merchant-mcp:latest
+
+# Test
+curl -s http://localhost:8002/health | python -m json.tool
+
+# Stop
+docker stop mcp-test
+
+# Or with just
+just docker
+docker load < result
+```
+
+`MCP_PORT` (default 8000) and `MCP_HOST` (default 0.0.0.0) are configurable via env vars.
+
+The image is ~900MB (includes Python 3.11 + all deps from nix store). No Dockerfile needed - the image is defined in `nix/package.nix` using `dockerTools.buildImage`.
+
+### Using just
+
+The project includes a `justfile` for common commands (requires [just](https://github.com/casey/just), available in the Nix dev shell):
+
+```bash
+just           # list all commands
+just run 8001  # run server on port 8001
+just test      # run pytest
+just lock      # regenerate uv.lock
+just sync      # sync dependencies
+just nix-build # nix build .#default
+just docker    # build Docker image via nix
+just shell     # nix develop
+```
+
+### Database Setup
+
+```bash
+# Create the database
+psql -U postgres -c "CREATE DATABASE mcp_product_context;"
+
+# Run migrations
+psql -U postgres -d mcp_product_context -f migrations/create_api_specs_v2.sql
+psql -U postgres -d mcp_product_context -f migrations/create_contextual_embeddings.sql
+
+# Full schema init (documents, text_chunks, endpoint_specs, etc.)
+uv run python scripts/full_ingest.py
+```
+
+### Verifying the Server
+
+```bash
+# Health check (DB connected?)
+curl -s http://localhost:8001/health | python -m json.tool
+
+# List all tools
+curl -s http://localhost:8001/tools | python -m json.tool
+
+# Call a tool
+curl -s http://localhost:8001/tools/call \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "list_api_specs", "arguments": {}}' | python -m json.tool
+
+# SSE endpoint (MCP transport)
+curl -s -N http://localhost:8001/sse
+```
+
+### Adding Dependencies
+
+Dependencies are managed by `uv` using `pyproject.toml` + `uv.lock`. Nix users don't need to touch any hash - uv2nix reads `uv.lock` dynamically.
+
+```bash
+# Add a runtime dependency
+uv add <package>
+
+# Add a dev dependency
+uv add --dev <package>
+
+# Remove a dependency
+uv remove <package>
+
+# Regenerate lock file after manual pyproject.toml edits
+uv lock
+```
+
+For Nix users: after `uv add`/`uv remove`, just rebuild. No hash update needed:
+
+```bash
+uv add httpx
+nix build .#default  # picks up the new uv.lock automatically
 ```
 
 ### OpenCode Configuration
@@ -67,7 +197,7 @@ Add to your `~/.config/opencode/opencode.json`:
   "servers": {
     "merchant-mcp": {
       "type": "local",
-      "command": "bash -c 'cd /path/to/merchant_mcp && source .env && PYTHONPATH=/path/to/merchant_mcp python3 src/server/mcp_final.py'"
+      "command": "bash -c 'cd /path/to/merchant_mcp/latest && PYTHONPATH=. uv run python src/server/mcp_server.py'"
     }
   }
 }
@@ -315,76 +445,94 @@ IBMB_SANDBOX_URL=https://sandbox-api.ibmb.example.com
 
 ```bash
 # Ingest PDF documentation
-python ingest.py docs/ibmb-api-guide.pdf
+uv run python ingest.py docs/ibmb-api-guide.pdf
 
 # Ingest API specs
-python scripts/ingest_api_specs.py
+uv run python scripts/ingest_api_specs.py
 
 # Generate contextual embeddings
-python scripts/generate_contextual_embeddings.py --doc-id=ibmb-api-guide
+uv run python scripts/generate_contextual_embeddings.py --doc-id=ibmb-api-guide
 ```
 
 ## Development
 
 ### Running Tests
 
+Smoke tests hit a running server (via Docker or `uv run`). Start the server first, then run pytest:
+
 ```bash
-# Run all tests
-pytest tests/
+# Start server in Docker
+docker run --rm -d --name mcp-test --network host \
+  -e DATABASE_URL=postgresql://postgres@localhost:5432/mcp_product_context \
+  -e MCP_PORT=8002 \
+  merchant-mcp:latest
 
-# Run specific test file
-pytest tests/test_building_tools.py
+# Run smoke tests against it
+MCP_URL=http://localhost:8002 uv run pytest tests/test_smoke.py -v
 
-# Run with coverage
-pytest --cov=src tests/
+# Stop the container
+docker stop mcp-test
 ```
+
+Or test against a locally running server:
+
+```bash
+# Terminal 1: start server
+uv run python -m uvicorn src.server.mcp_server:app --port 8001
+
+# Terminal 2: run tests
+MCP_URL=http://localhost:8001 uv run pytest tests/test_smoke.py -v
+```
+
+Default URL is `http://localhost:8000` if `MCP_URL` is not set.
 
 ### Adding New Tools
 
 1. Create tool implementation in `src/tools/`
-2. Add MCP decorator in `src/server/mcp_final.py`
-3. Update this README
-4. Add test in `tests/`
+2. Register it in `src/server/tool_registry.py`
+3. Add test in `tests/`
+
+### Adding Dependencies
+
+See [Quick Start - Adding Dependencies](#adding-dependencies) above. Short version:
+
+```bash
+uv add <package>      # add runtime dep
+uv add --dev <package> # add dev dep
+uv remove <package>    # remove
+```
+
+Nix users: `nix build .#default` picks up the change from `uv.lock` automatically. No hash update needed.
 
 ### Project Structure
 
 ```
-merchant_mcp/
+merchant_mcp/latest/
 ├── src/
 │   ├── server/
-│   │   └── mcp_final.py          # Main MCP server (37 tools)
-│   ├── tools/
-│   │   ├── enhanced_building_tools.py
-│   │   ├── enhanced_code_generator.py
-│   │   ├── enhanced_validator.py
-│   │   ├── enhanced_webhook_handler.py
-│   │   ├── enhanced_testing_tools.py
-│   │   ├── enhanced_debugging_tools.py
-│   │   ├── enhanced_guides.py
-│   │   ├── sandbox_client.py
-│   │   ├── integration_checker.py
+│   │   ├── mcp_server.py          # Main MCP server (FastAPI)
+│   │   └── tool_registry.py       # Tool registration
+│   ├── tools/                      # Tool implementations
+│   │   ├── admin_tools.py
 │   │   ├── api_specs_v2_tools.py
-│   │   ├── contextual_embedding_generator.py
-│   │   └── code_templates/
-│   │       ├── python_sdk.py
-│   │       ├── nodejs_sdk.py
-│   │       ├── java_sdk.py
-│   │       ├── go_sdk.py
-│   │       └── php_sdk.py
+│   │   ├── building_tools.py
+│   │   ├── code_templates/        # Multi-language SDK generators
+│   │   └── ...
 │   ├── utils/
-│   │   ├── database.py
-│   │   ├── llm.py
-│   │   └── config.py
-│   └── ingestion/
-│       ├── pipeline.py
-│       └── pdf_parser.py
-├── api_specs/                    # IBMB API specifications
-├── migrations/                   # Database migrations
-├── scripts/                      # Utility scripts
-├── tests/                        # Test suite
-├── ingest.py                     # Universal file ingestion
-├── README.md                     # This file
-└── requirements.txt
+│   │   ├── config.py              # Environment config
+│   │   ├── database.py            # asyncpg + pgvector
+│   │   └── llm.py                 # LiteLLM client
+│   ├── ingestion/                  # Document ingestion pipeline
+│   └── schema/                    # Pydantic models
+├── migrations/                    # SQL migrations
+├── scripts/                       # Utility + ingestion scripts
+├── tests/
+├── pyproject.toml                 # uv-managed dependencies
+├── uv.lock                        # Locked dependencies
+├── flake.nix                      # Nix flake (uv2nix + devShell)
+├── nix/                           # Nix modules (package, devshell, pre-commit)
+├── justfile                       # Task runner
+└── .envrc                         # direnv config
 ```
 
 ## API Specification Format
@@ -460,8 +608,8 @@ insert_api_spec_v2(spec=json_spec)
 - [x] Phase 2: Testing Infrastructure
 - [x] Phase 3: Advanced Debugging
 - [x] Phase 4: Documentation & Intelligence
-- [ ] Docker deployment
-- [ ] Kubernetes support
+- [x] uv + Nix (uv2nix) build system
+- [x] Docker image via nix (dockerTools)
 - [ ] More language SDKs (Rust, .NET)
 - [ ] Real-time collaboration features
 
