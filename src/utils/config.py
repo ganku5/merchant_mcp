@@ -23,7 +23,8 @@ class Config:
     LITELLM_LLM_API_BASE: str = ""
     LITELLM_LLM_API_KEY: str = ""
     AGENT_RESPONSE_BACKEND: str = "opencode"
-    OPENCODE_CLI_COMMAND: str = "/home/ganesh/.opencode/bin/opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
+    OPENCODE_BIN_DIR: str = "/home/ganesh/.opencode/bin"
+    OPENCODE_CLI_COMMAND: str = "opencode run --dir /tmp/merchant_mcp_opencode --model litellm/kimi-latest --no-replay {prompt}"
     OPENCODE_CLI_TIMEOUT_SECONDS: int = 600
     OPENCODE_WORKDIR: str = "/tmp/merchant_mcp_opencode"
     
@@ -61,6 +62,8 @@ class Config:
                             cls.LITELLM_LLM_API_KEY = value
                         elif key == "AGENT_RESPONSE_BACKEND":
                             cls.AGENT_RESPONSE_BACKEND = value
+                        elif key == "OPENCODE_BIN_DIR":
+                            cls.OPENCODE_BIN_DIR = value
                         elif key == "OPENCODE_CLI_COMMAND":
                             cls.OPENCODE_CLI_COMMAND = value
                         elif key == "OPENCODE_CLI_TIMEOUT_SECONDS":

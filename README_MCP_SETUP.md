@@ -182,12 +182,13 @@ The integration agent uses OpenCode CLI by default for the synthesis/tool-comman
 
 ```bash
 export AGENT_RESPONSE_BACKEND="opencode"
-export OPENCODE_CLI_COMMAND="/home/ganesh/.opencode/bin/opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
+export OPENCODE_BIN_DIR="/home/ganesh/.opencode/bin"
+export OPENCODE_CLI_COMMAND="opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
 export OPENCODE_CLI_TIMEOUT_SECONDS="600"
 export OPENCODE_WORKDIR="/tmp/merchant_mcp_opencode"
 ```
 
-The command is executed without a shell. `{prompt}` is replaced with the agent prompt as one command argument. OpenCode runs from `/tmp/merchant_mcp_opencode` so it does not start repo file watchers on `.git`; this avoids `inotify_add_watch ... No space left on device` failures. The OpenCode config uses `JUSPAY_API_KEY`; the server maps the MCP `LITELLM_LLM_API_KEY` to that env var for the child process.
+The command is executed without a shell. `{prompt}` is replaced with the agent prompt as one command argument. `OPENCODE_BIN_DIR` is prepended to the child process `PATH`, so `OPENCODE_CLI_COMMAND` can use `opencode` without an absolute path. OpenCode runs from `/tmp/merchant_mcp_opencode` so it does not start repo file watchers on `.git`; this avoids `inotify_add_watch ... No space left on device` failures. The OpenCode config uses `JUSPAY_API_KEY`; the server maps the MCP `LITELLM_LLM_API_KEY` to that env var for the child process.
 
 ```bash
 # Health check

@@ -359,8 +359,9 @@ class IntegrationAgent:
     @staticmethod
     def _opencode_env() -> Dict[str, str]:
         env = os.environ.copy()
-        path_prefix = "/home/ganesh/.opencode/bin"
-        env["PATH"] = f"{path_prefix}:{env.get('PATH', '')}"
+        opencode_bin_dir = (Config.OPENCODE_BIN_DIR or "").strip()
+        if opencode_bin_dir:
+            env["PATH"] = f"{opencode_bin_dir}:{env.get('PATH', '')}"
 
         if Config.LITELLM_LLM_API_KEY:
             env.setdefault("LITELLM_LLM_API_KEY", Config.LITELLM_LLM_API_KEY)
