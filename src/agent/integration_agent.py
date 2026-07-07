@@ -214,9 +214,10 @@ class IntegrationAgent:
             ),
         )
         started = time.time()
+        stdin_config = asyncio.subprocess.PIPE if use_stdin else asyncio.subprocess.DEVNULL
         proc = await asyncio.create_subprocess_exec(
             *args,
-            stdin=asyncio.subprocess.PIPE if use_stdin else None,
+            stdin=stdin_config,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=workdir,
