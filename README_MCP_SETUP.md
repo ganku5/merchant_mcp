@@ -3,9 +3,9 @@
 ## Current Status
 
 ✅ MCP Server code is ready at `src/server/mcp_server.py`
-✅ 23 hosted tools implemented for client query resolution, integration guidance, testing, and debugging
+✅ 23 hosted tools implemented for client query resolution, integration guidance, testing, debugging, and document retrieval
 ✅ Database connected and populated
-✅ Current database has 20 documents, 2,950 text chunks, 2,702 contextual embeddings, 13 legacy endpoint specs, and 7 v2 API specs
+✅ Current database has 431 documents, 7,744 text chunks, 2,702 contextual embeddings, 197 legacy endpoint specs, and 184 v2 API specs
 
 ## Starting the Server
 
@@ -113,6 +113,15 @@ python3 scripts/manage_mcp.py ingest ./api_specs/openapi.json --type json
 python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/docs.zip
 python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/docs.zip --dry-run
 
+# Ingest generated callback documentation. Callback specs are update-only:
+# existing newton.callbacks.* records are refreshed; missing callback records are skipped.
+python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/callback-docs.zip
+python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/callback-docs.zip --skip-embeddings
+
+# Ingest NPCI circular PDFs from this repo's downloads folder into documents/text_chunks
+python3 scripts/manage_mcp.py ingest-npci-circulars --directory downloads/npci_circulars
+python3 scripts/manage_mcp.py ingest-npci-circulars --directory downloads/npci_circulars --dry-run
+
 # Add/update a rich API specification
 python3 scripts/manage_mcp.py add-api-spec ./api_specs/my_api_spec_v2.json
 
@@ -130,7 +139,7 @@ python3 scripts/manage_mcp.py stats
 - `get_api_spec` - Get complete API specification
 - `get_integration_guide` - Get step-by-step integration guide
 - `get_flow` - Get ordered API call sequence
-- `search_docs` - Search documentation using semantic search
+- `search_docs` - Search documentation chunks using semantic search. For NPCI circulars, pass `namespace: "npci_circulars"`.
 
 ### Building Phase
 - `generate_payload` - Generate valid JSON payload
@@ -159,13 +168,33 @@ python3 scripts/manage_mcp.py stats
 - `search_contextual_embeddings` - Search generated Q&A context
 - `answer_question` - Answer client questions from ingested context
 
-Ingestion and context-loading are intentionally not exposed as MCP tools. Use `scripts/manage_mcp.py ingest`, `ingest-docs-zip`, `add-api-spec`, and `add-context` from an operator shell instead.
+### NPCI Circulars
+- NPCI circulars use the existing `documents` and `text_chunks` tables.
+- Use `search_docs` with `namespace: "npci_circulars"` to retrieve circular chunks and their parent `doc_id`.
+
+Ingestion and context-loading are intentionally not exposed as MCP tools. Use `scripts/manage_mcp.py ingest`, `ingest-docs-zip`, `ingest-npci-circulars`, `add-api-spec`, and `add-context` from an operator shell instead.
 
 ## Testing the Server
+
+The integration agent UI at `/agent` is a ChatGPT-style chatbox. The app sends the user message to OpenCode and returns OpenCode's final response. OpenCode uses its configured MCP servers directly; the app does not parse tool-call JSON or pass MCP tool results back to OpenCode.
+
+The integration agent uses OpenCode CLI by default for the synthesis/tool-command loop:
+
+```bash
+export AGENT_RESPONSE_BACKEND="opencode"
+export OPENCODE_CLI_COMMAND="/home/ganesh/.opencode/bin/opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
+export OPENCODE_CLI_TIMEOUT_SECONDS="600"
+export OPENCODE_WORKDIR="/tmp/merchant_mcp_opencode"
+```
+
+The command is executed without a shell. `{prompt}` is replaced with the agent prompt as one command argument. OpenCode runs from `/tmp/merchant_mcp_opencode` so it does not start repo file watchers on `.git`; this avoids `inotify_add_watch ... No space left on device` failures. The OpenCode config uses `JUSPAY_API_KEY`; the server maps the MCP `LITELLM_LLM_API_KEY` to that env var for the child process.
 
 ```bash
 # Health check
 curl http://localhost:8000/health
+
+# Open the integration agent UI
+# http://localhost:8000/agent
 
 # List tools
 curl http://localhost:8000/tools
@@ -187,13 +216,13 @@ curl -X POST http://localhost:8000/mcp \
 
 ## Data Ingested
 
-- **20 documents**
-- **2,950 text chunks**
+- **431 documents**
+- **7,744 text chunks**
 - **2,702 contextual embeddings**
-- **13 legacy endpoint specs**
-- **7 v2 API specs**
+- **197 legacy endpoint specs**
+- **184 v2 API specs**
 - **254 error codes**
-- **6 integration flows**
+- **0 integration flows**
 
 ## Troubleshooting
 

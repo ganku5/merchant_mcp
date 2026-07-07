@@ -7,6 +7,12 @@ from ..utils.database import database
 from ..utils.llm import llm_client
 
 
+def _md_cell(value) -> str:
+    """Escape a value for use inside a markdown table cell."""
+    text = "" if value is None else str(value)
+    return text.replace("|", "&#124;").replace("\n", "<br>").strip()
+
+
 async def get_api_spec(endpoint_id: str, version: Optional[str] = None, include_samples: bool = True) -> dict:
     """Get complete API specification for an endpoint.
 
@@ -103,6 +109,9 @@ async def _get_api_spec_v2(db_conn, spec_row, include_samples: bool) -> dict:
     if spec_data.get('business_use_case'):
         sections.append(f"\n## Business Use Case\n{spec_data['business_use_case']}")
 
+    if spec_data.get('when_newton_sends_it'):
+        sections.append(f"\n## When Newton Sends It\n{spec_data['when_newton_sends_it']}")
+
     # Get headers
     headers = await db_conn.fetch("""
         SELECT * FROM api_headers WHERE spec_id = $1 ORDER BY header_type, name
@@ -111,20 +120,44 @@ async def _get_api_spec_v2(db_conn, spec_row, include_samples: bool) -> dict:
     if headers:
         sections.append("\n## Headers")
         current_type = None
+        header_rows = []
+
+        def flush_header_table():
+            nonlocal header_rows
+            if not header_rows:
+                return
+            sections.extend([
+                "| Header | Required | Description | Example | Pattern / Condition |",
+                "| --- | --- | --- | --- | --- |",
+                *header_rows,
+            ])
+            header_rows = []
+
         for h in headers:
             if h['header_type'] != current_type:
+                flush_header_table()
                 current_type = h['header_type']
                 sections.append(f"\n### {current_type.title()} Headers")
 
-            req_marker = "*" if h['required'] else ""
-            cond_note = f" [{h['conditional_when']}]" if h['conditional_when'] else ""
-            sections.append(f"- **{h['name']}**{req_marker}{cond_note}")
-            if h['description']:
-                sections.append(f"  - {h['description']}")
-            if h['example_value']:
-                sections.append(f"  - Example: `{h['example_value']}`")
-            if h['pattern']:
-                sections.append(f"  - Pattern: `{h['pattern']}`")
+            condition = h['conditional_when'] or ""
+            pattern_condition = "<br>".join(
+                item for item in [
+                    f"Pattern: `{h['pattern']}`" if h['pattern'] else "",
+                    f"Condition: {condition}" if condition else "",
+                ] if item
+            )
+            header_rows.append(
+                "| "
+                + " | ".join([
+                    _md_cell(h['name']),
+                    "Yes" if h['required'] else "No",
+                    _md_cell(h['description'] or ""),
+                    f"`{_md_cell(h['example_value'])}`" if h['example_value'] else "",
+                    _md_cell(pattern_condition),
+                ])
+                + " |"
+            )
+        flush_header_table()
 
     # Get fields (build tree)
     async def get_fields(context: str):
@@ -135,64 +168,68 @@ async def _get_api_spec_v2(db_conn, spec_row, include_samples: bool) -> dict:
         """, spec_id, context)
         return [dict(r) for r in rows]
 
-    def format_field_tree(fields, parent='', indent=0):
-        result = []
-        prefix = "  " * indent
-
+    def format_field_table(fields):
+        result = [
+            "| Field | Type | Required | Description | Constraints / Condition | Example |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
         for f in fields:
-            field_parent = f.get('parent_path', '')
-            if field_parent == parent:
-                req = f.get('requirement', 'optional')
-                req_marker = {"mandatory": "*", "optional": "", "conditional": "†"}.get(req, "")
+            req = f.get('requirement', 'optional')
+            required = {"mandatory": "Yes", "optional": "No", "conditional": "Conditional"}.get(req, req)
 
-                field_type = f.get('field_type', 'unknown')
-                if f.get('subtype'):
-                    field_type += f"<{f['subtype']}>"
+            field_type = f.get('field_type', 'unknown')
+            if f.get('subtype'):
+                field_type += f"<{f['subtype']}>"
 
-                cond_note = ""
-                if req == 'conditional' and f.get('condition_description'):
-                    cond_note = f" [{f['condition_description']}]"
+            constraints = f.get('constraints', {})
+            if isinstance(constraints, str):
+                try:
+                    constraints = json.loads(constraints)
+                except:
+                    constraints = {}
 
-                line = f"{prefix}- **{f['field_name']}**{req_marker} (`{field_type}`){cond_note}"
-                result.append(line)
+            cons_list = []
+            if req == 'conditional' and f.get('condition_description'):
+                cons_list.append(f"Condition: {f['condition_description']}")
+            if constraints:
+                if constraints.get('pattern'): cons_list.append(f"Pattern: `{constraints['pattern']}`")
+                if constraints.get('minLength'): cons_list.append(f"Min: {constraints['minLength']}")
+                if constraints.get('maxLength'): cons_list.append(f"Max: {constraints['maxLength']}")
+                if constraints.get('enum'): cons_list.append(f"Enum: {constraints['enum']}")
 
-                if f.get('description'):
-                    result.append(f"{prefix}  - {f['description']}")
+            field_name = f.get('full_path') or f.get('field_name') or ""
+            example = f.get('example_value')
+            if isinstance(example, (dict, list)):
+                example = json.dumps(example)
+            elif example is None:
+                example = ""
 
-                # Constraints
-                constraints = f.get('constraints', {})
-                if isinstance(constraints, str):
-                    try:
-                        constraints = json.loads(constraints)
-                    except:
-                        constraints = {}
-                if constraints:
-                    cons_list = []
-                    if constraints.get('pattern'): cons_list.append(f"pattern: {constraints['pattern']}")
-                    if constraints.get('minLength'): cons_list.append(f"min: {constraints['minLength']}")
-                    if constraints.get('maxLength'): cons_list.append(f"max: {constraints['maxLength']}")
-                    if constraints.get('enum'): cons_list.append(f"enum: {constraints['enum']}")
-                    if cons_list:
-                        result.append(f"{prefix}  - Constraints: {', '.join(cons_list)}")
-
-                # Recurse into children
-                full_path = f.get('full_path', f['field_name'])
-                result.extend(format_field_tree(fields, full_path, indent + 1))
+            result.append(
+                "| "
+                + " | ".join([
+                    _md_cell(field_name),
+                    _md_cell(field_type),
+                    _md_cell(required),
+                    _md_cell(f.get('description') or ""),
+                    _md_cell("<br>".join(cons_list)),
+                    f"`{_md_cell(str(example))}`" if example != "" else "",
+                ])
+                + " |"
+            )
 
         return result
 
     # Request schema
     request_fields = await get_fields('request')
     if request_fields:
-        sections.append("\n## Request Schema")
-        sections.append("\nLegend: `*` = Mandatory, `†` = Conditional")
-        sections.extend(format_field_tree(request_fields))
+        sections.append("\n## Request Fields")
+        sections.extend(format_field_table(request_fields))
 
     # Response schema
     response_fields = await get_fields('response')
     if response_fields:
-        sections.append("\n## Response Schema")
-        sections.extend(format_field_tree(response_fields))
+        sections.append("\n## Response Fields")
+        sections.extend(format_field_table(response_fields))
 
     # Get conditions
     conditions = await db_conn.fetch("""
@@ -532,7 +569,7 @@ async def search_docs(query: str, limit: int = 5, namespace: Optional[str] = Non
     Args:
         query: Natural language search query
         limit: Maximum number of results (default: 5)
-        namespace: Specific namespace to search (guides, faqs, error_descriptions, known_issues)
+        namespace: Specific namespace to search (for NPCI circulars use npci_circulars)
 
     Returns:
         Top matching documentation chunks with similarity scores
@@ -540,24 +577,51 @@ async def search_docs(query: str, limit: int = 5, namespace: Optional[str] = Non
     if database._pool is None:
         await database.connect()
 
-    # First try semantic search if we have embeddings
+    chunk_results = []
+    try:
+        chunk_results = await database.search_text_chunks_keyword(query, namespace=namespace, limit=limit)
+        for result in chunk_results:
+            result["match_type"] = "keyword"
+    except Exception:
+        chunk_results = []
+
+    # Also try semantic search if we have embeddings, then merge with keyword hits.
     try:
         embeddings = await llm_client.embed([query])
         query_embedding = embeddings[0]
 
-        results = await database.search_similar_chunks(
+        semantic_results = await database.search_similar_chunks(
             query_embedding=query_embedding,
             namespace=namespace,
             limit=limit
         )
+        for result in semantic_results:
+            result["match_type"] = "semantic"
+
+        seen = set()
+        results = []
+        for result in [*chunk_results, *semantic_results]:
+            key = (result.get("doc_id"), result.get("chunk_index"))
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(result)
+            if len(results) >= limit:
+                break
 
         if results:
             sections = [f"# Search Results for: \"{query}\"\n"]
 
             for i, result in enumerate(results, 1):
-                sim_pct = result.get('similarity', 0) * 100
-                sections.append(f"\n## Result {i} (Relevance: {sim_pct:.0f}%)")
+                if result.get("match_type") == "keyword":
+                    label = f"Keyword score: {result.get('keyword_score', 0)}"
+                else:
+                    sim_pct = result.get('similarity', 0) * 100
+                    label = f"Relevance: {sim_pct:.0f}%"
+                sections.append(f"\n## Result {i} ({label})")
                 sections.append(f"**Source:** {result.get('namespace', 'unknown')} / {result.get('filename', 'doc')}")
+                sections.append(f"**Document ID:** `{result.get('doc_id', 'unknown')}`")
+                sections.append(f"**Chunk:** `{result.get('chunk_index', 'unknown')}`")
                 sections.append(f"\n```\n{result['chunk_text'][:800]}...\n```")
 
             return {
@@ -570,8 +634,17 @@ async def search_docs(query: str, limit: int = 5, namespace: Optional[str] = Non
         # Fall back to keyword search
         pass
 
-    # Keyword fallback: search endpoints and error codes
+    # Keyword fallback: search existing chunks first, then endpoint and error-code tables.
     sections = [f"# Keyword Search Results for: \"{query}\"\n"]
+
+    if chunk_results:
+        sections.append("\n## Matching Document Chunks")
+        for i, result in enumerate(chunk_results, 1):
+            sections.append(f"\n### Result {i}")
+            sections.append(f"**Source:** {result.get('namespace', 'unknown')} / {result.get('filename', 'doc')}")
+            sections.append(f"**Document ID:** `{result.get('doc_id', 'unknown')}`")
+            sections.append(f"**Chunk:** `{result.get('chunk_index', 'unknown')}`")
+            sections.append(f"\n```\n{result['chunk_text'][:800]}...\n```")
 
     endpoints = await database.search_endpoints(query, limit=5)
     if endpoints:
@@ -586,7 +659,7 @@ async def search_docs(query: str, limit: int = 5, namespace: Optional[str] = Non
         for err in error_codes:
             sections.append(f"- **{err['error_code']}** ({err['category']}) - {err['message']}")
 
-    if not endpoints and not error_codes:
+    if not chunk_results and not endpoints and not error_codes:
         sections.append("\nNo matches found. Try different keywords or check spelling.")
 
     return {

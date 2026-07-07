@@ -509,16 +509,81 @@ class Database:
                 ranked.sort(key=lambda r: r["similarity"], reverse=True)
                 return ranked[:limit]
 
+    async def search_text_chunks_keyword(self, query: str,
+                                         namespace: Optional[str] = None,
+                                         limit: int = 5) -> List[Dict]:
+        """Keyword fallback over existing text chunks joined to documents."""
+        stop_words = {
+            "the", "and", "for", "with", "from", "that", "this", "what",
+            "does", "say", "says", "about", "into", "how", "are", "was",
+            "were", "npci", "circular", "circulars", "mention", "mentions",
+            "mentioned",
+        }
+        generic_terms = {
+            "transaction", "transactions", "limit", "limits", "revision",
+            "merchant", "merchants", "payment", "payments",
+        }
+        tokens = [
+            token.lower()
+            for token in re.findall(r"[a-zA-Z0-9]+", query)
+            if len(token) > 2 and token.lower() not in stop_words
+        ][:8]
+        if not tokens:
+            tokens = [query.lower()]
+
+        params = [f"%{token}%" for token in tokens]
+        clauses = []
+        score_parts = []
+        for index, token in enumerate(tokens, 1):
+            chunk_weight = 2 if token in generic_terms else 5
+            filename_weight = 4 if token in generic_terms else 9
+            content_weight = 1 if token in generic_terms else 2
+            clauses.append(
+                f"(tc.chunk_text ILIKE ${index} OR d.filename ILIKE ${index} OR d.content ILIKE ${index})"
+            )
+            score_parts.extend([
+                f"CASE WHEN tc.chunk_text ILIKE ${index} THEN {chunk_weight} ELSE 0 END",
+                f"CASE WHEN d.filename ILIKE ${index} THEN {filename_weight} ELSE 0 END",
+                f"CASE WHEN d.content ILIKE ${index} THEN {content_weight} ELSE 0 END",
+            ])
+
+        args = list(params)
+        namespace_clause = ""
+        if namespace:
+            args.append(namespace)
+            namespace_clause = f" AND tc.namespace = ${len(args)}"
+
+        args.append(limit)
+        limit_param = len(args)
+        sql = f"""
+            SELECT tc.doc_id,
+                   tc.chunk_index,
+                   tc.chunk_text,
+                   tc.namespace,
+                   d.filename,
+                   ({' + '.join(score_parts)}) AS keyword_score
+            FROM text_chunks tc
+            JOIN documents d ON tc.doc_id = d.doc_id
+            WHERE ({' OR '.join(clauses)}){namespace_clause}
+            ORDER BY keyword_score DESC, d.filename, tc.chunk_index
+            LIMIT ${limit_param}
+        """
+
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(sql, *args)
+        return [dict(r) for r in rows]
+
     async def search_api_business_use_cases(self, query_embedding: List[float],
                                             limit: int = 10) -> List[Dict]:
         """Search API specs by business-use-case embedding similarity."""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT endpoint_id, method, path, api_version, summary,
-                          description, business_use_case, business_use_case_embedding
+                          description, business_use_case, when_newton_sends_it,
+                          business_use_case_embedding
                    FROM api_specs_v2
                    WHERE business_use_case_embedding IS NOT NULL
-                     AND business_use_case IS NOT NULL"""
+                     AND (business_use_case IS NOT NULL OR when_newton_sends_it IS NOT NULL)"""
             )
 
             ranked = []
@@ -556,10 +621,12 @@ class Database:
         for index in range(1, len(params) + 1):
             clause = (
                 f"(business_use_case ILIKE ${index} OR summary ILIKE ${index} "
-                f"OR description ILIKE ${index} OR path ILIKE ${index})"
+                f"OR description ILIKE ${index} OR path ILIKE ${index} "
+                f"OR when_newton_sends_it ILIKE ${index})"
             )
             match_clauses.append(clause)
             score_parts.extend([
+                f"CASE WHEN when_newton_sends_it ILIKE ${index} THEN 5 ELSE 0 END",
                 f"CASE WHEN business_use_case ILIKE ${index} THEN 4 ELSE 0 END",
                 f"CASE WHEN summary ILIKE ${index} THEN 2 ELSE 0 END",
                 f"CASE WHEN path ILIKE ${index} THEN 2 ELSE 0 END",
@@ -569,7 +636,7 @@ class Database:
         limit_param = len(params) + 1
         sql = f"""
             SELECT endpoint_id, method, path, api_version, summary,
-                   description, business_use_case,
+                   description, business_use_case, when_newton_sends_it,
                    ({' + '.join(score_parts)}) AS keyword_score
             FROM api_specs_v2
             WHERE {' OR '.join(match_clauses)}

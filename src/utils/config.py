@@ -22,6 +22,10 @@ class Config:
     LLM_MODEL: str = "kimi-latest"
     LITELLM_LLM_API_BASE: str = ""
     LITELLM_LLM_API_KEY: str = ""
+    AGENT_RESPONSE_BACKEND: str = "opencode"
+    OPENCODE_CLI_COMMAND: str = "/home/ganesh/.opencode/bin/opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
+    OPENCODE_CLI_TIMEOUT_SECONDS: int = 600
+    OPENCODE_WORKDIR: str = "/tmp/merchant_mcp_opencode"
     
     # Embeddings
     EMBEDDING_MODEL: str = "openai/embed-marqo-ecommerce-b"
@@ -55,6 +59,14 @@ class Config:
                             cls.LITELLM_LLM_API_BASE = value
                         elif key == "LITELLM_LLM_API_KEY":
                             cls.LITELLM_LLM_API_KEY = value
+                        elif key == "AGENT_RESPONSE_BACKEND":
+                            cls.AGENT_RESPONSE_BACKEND = value
+                        elif key == "OPENCODE_CLI_COMMAND":
+                            cls.OPENCODE_CLI_COMMAND = value
+                        elif key == "OPENCODE_CLI_TIMEOUT_SECONDS":
+                            cls.OPENCODE_CLI_TIMEOUT_SECONDS = int(value)
+                        elif key == "OPENCODE_WORKDIR":
+                            cls.OPENCODE_WORKDIR = value
                         elif key == "LITELLM_EMBEDDING_API_BASE":
                             cls.LITELLM_EMBEDDING_API_BASE = value
                         elif key == "LITELLM_EMBEDDING_API_KEY":
