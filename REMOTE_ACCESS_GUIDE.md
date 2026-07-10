@@ -18,7 +18,7 @@
 On the host machine (10.10.71.79):
 
 ```bash
-cd /home/ganesh/merchant_mcp
+cd "$HOME/merchant_mcp"
 ./start_mcp_server.sh
 
 # Or with custom port:

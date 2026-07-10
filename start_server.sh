@@ -2,17 +2,18 @@
 # Start Merchant MCP Server
 
 # Load environment variables
-if [ -f "/home/ganesh/context_mcp/load.env" ]; then
-    echo "Loading environment from /home/ganesh/context_mcp/load.env"
+ENV_FILE="$HOME/context_mcp/load.env"
+if [ -f "$ENV_FILE" ]; then
+    echo "Loading environment from $ENV_FILE"
     set -a
-    source /home/ganesh/context_mcp/load.env
+    source "$ENV_FILE"
     set +a
 else
     echo "Warning: load.env not found"
 fi
 
 # Change to project directory
-cd /home/ganesh/merchant_mcp
+cd "$(dirname "$0")"
 
 # Start the server
 echo "Starting MCP Server on port ${MCP_PORT:-8000}..."
