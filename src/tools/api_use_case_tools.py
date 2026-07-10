@@ -56,6 +56,8 @@ async def search_api_use_cases(query: str, limit: int = 10) -> dict:
             sections.append(f"**Summary:** {row['summary']}")
         if row.get("business_use_case"):
             sections.append(f"\n{row['business_use_case']}")
+        if row.get("when_newton_sends_it"):
+            sections.append(f"\n**When Newton Sends It**\n{row['when_newton_sends_it']}")
 
     return {
         "content": [{"type": "text", "text": "\n".join(sections)}],

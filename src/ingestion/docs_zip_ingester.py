@@ -14,6 +14,7 @@ from ..utils.database import database
 
 
 API_DOC_PREFIX = "server-to-server-apis/"
+CALLBACK_DOC_PREFIX = "docs/newton-callbacks/"
 DEFAULT_SOURCE_NAME = "s2s_api_docs"
 
 
@@ -55,10 +56,20 @@ def _source_endpoint(text: str) -> Tuple[str, str]:
     return match.group(1), match.group(2)
 
 
+def _source_callback_type(text: str) -> str:
+    match = re.search(r"(?:Source callback type|Callback type):\s*`([^`]+)`", text)
+    return match.group(1).strip() if match else ""
+
+
 def _endpoint_id(method: str, path: str) -> str:
     path_part = re.sub(r"^/api/\{apiVersion\}/?", "", path).strip("/")
     segments = [_slug(part) for part in path_part.split("/") if part]
     return ".".join(["newton", "s2s", method.lower(), *segments])
+
+
+def _callback_endpoint_id(callback_type: str, fallback_path: str) -> str:
+    value = callback_type or Path(fallback_path).stem
+    return ".".join(["newton", "callbacks", "post", _slug(value)])
 
 
 def _parse_markdown_table(lines: List[str], start: int) -> Tuple[List[Dict[str, str]], int]:
@@ -100,7 +111,9 @@ def _tables_with_context(text: str) -> Iterable[Tuple[str, List[Dict[str, str]]]
 
 def _requirement(value: str) -> str:
     lowered = value.lower()
-    if lowered in {"yes", "required", "true", "always present"}:
+    if "required when selected" in lowered:
+        return "conditional"
+    if lowered in {"yes", "required", "true", "always present"} or lowered.startswith("required"):
         return "mandatory"
     if "conditional" in lowered or "yes for" in lowered:
         return "conditional"
@@ -139,10 +152,10 @@ def _field_from_row(row: Dict[str, str], context: str, order: int, parent_path: 
     if not name:
         return None
 
-    required_text = row.get("Required") or row.get("Always present") or "No"
+    required_text = row.get("Required") or row.get("Presence") or row.get("Always present") or "No"
     requirement = _requirement(required_text)
     default_value = row.get("Default / omitted behavior") or row.get("Default") or None
-    condition = row.get("Description", "") if requirement == "conditional" else None
+    condition = required_text if requirement == "conditional" else None
     constraints: Dict[str, Any] = {}
     enum_values = _enum_values(row)
     if enum_values:
@@ -178,6 +191,16 @@ def _json_block_after(text: str, heading: str) -> Optional[Any]:
     if not marker:
         return None
     block = re.search(r"```json\s*(.*?)```", text[marker.end():], re.S)
+    if not block:
+        return None
+    try:
+        return json.loads(block.group(1).strip())
+    except json.JSONDecodeError:
+        return None
+
+
+def _first_json_block(text: str) -> Optional[Any]:
+    block = re.search(r"```json\s*(.*?)```", text, re.S)
     if not block:
         return None
     try:
@@ -330,21 +353,142 @@ def parse_api_markdown(relative_path: str, content: str) -> Dict[str, Any]:
     }
 
 
-def read_docs_zip(zip_path: str) -> Tuple[Dict[str, str], str]:
-    """Read API markdown files from the documentation zip."""
+def parse_callback_markdown(relative_path: str, content: str) -> Dict[str, Any]:
+    """Parse one generated callback markdown file into the v2 API spec shape."""
+    callback_type = _source_callback_type(content)
+    title = _strip_heading_name(_first_heading(content))
+    overview = _section(content, "Overview")
+    business_use_case = _section(content, "Business Use Case")
+    when_sent = _section(content, "When Newton Sends It")
+    delivery = _section(content, "Delivery")
+    request_body_section = _section(content, "Request Body")
+    field_reference = _section(content, "Field Reference")
+    response_section = _section(content, "Merchant Response")
+
+    delivery_props = {}
+    for _heading, rows in _tables_with_context(delivery):
+        for row in rows:
+            prop = row.get("Property")
+            if prop:
+                delivery_props[prop] = row.get("Value", "")
+
+    request_fields = []
+    order = 0
+    for heading, rows in _tables_with_context(field_reference):
+        if not rows:
+            continue
+        columns = set(rows[0].keys())
+        if "Field" not in columns or "Type" not in columns:
+            continue
+        parent_path = _parent_from_heading(heading)
+        for row in rows:
+            field = _field_from_row(row, "request", order, parent_path)
+            if field:
+                request_fields.append(field)
+                order += 1
+
+    request_body = _first_json_block(request_body_section)
+    headers = {"request": [
+        {
+            "name": "Content-Type",
+            "required": True,
+            "description": "Callback request content type.",
+            "value_template": "application/json",
+            "example_value": "application/json",
+        },
+        {
+            "name": "X-Merchant-Payload-Signature",
+            "required": False,
+            "description": "Signature header when configured for the merchant callback.",
+            "value_template": "<signature when configured>",
+            "conditional_when": "Present when callback signing is enabled for the merchant.",
+        },
+    ], "response": []}
+
+    callback_path = f"/callbacks/{callback_type or _slug(Path(relative_path).stem)}"
+    description = overview
+    business_context = "\n\n".join(part for part in [business_use_case, response_section] if part)
+    source_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    doc_id = f"{DEFAULT_SOURCE_NAME}__{_slug(Path(relative_path).stem)}"
+
+    samples = []
+    if request_body is not None:
+        samples.append({
+            "sample_name": "Callback Payload",
+            "description": "Decrypted business payload example from the generated callback guide.",
+            "scenario": "callback_payload",
+            "request": {
+                "headers": {
+                    "Content-Type": "application/json",
+                    "X-Merchant-Payload-Signature": "<signature when configured>",
+                },
+                "query_params": {},
+                "path_params": {},
+                "body": request_body,
+            },
+            "response": {
+                "status_code": 200,
+                "headers": {},
+                "body": {},
+            },
+        })
+
+    return {
+        "endpoint_id": _callback_endpoint_id(callback_type, relative_path),
+        "method": "POST",
+        "path": callback_path,
+        "api_version": "latest",
+        "summary": title,
+        "description": description,
+        "business_use_case": business_context or business_use_case,
+        "when_newton_sends_it": when_sent,
+        "documentation_url": relative_path,
+        "headers": headers,
+        "request_fields": request_fields,
+        "response_fields": [],
+        "samples": samples,
+        "conditions": [],
+        "source_doc_id": doc_id,
+        "source_file": relative_path,
+        "source_hash": source_hash,
+        "spec_data": {
+            "doc_type": "callback",
+            "callback_type": callback_type,
+            "category": delivery_props.get("Category"),
+            "status": delivery_props.get("Status"),
+            "payload_type": delivery_props.get("Payload type"),
+            "source_builder": delivery_props.get("Source builder"),
+            "delivery": delivery_props,
+            "request_body_notes": request_body_section,
+            "merchant_response": response_section,
+            "source_file": relative_path,
+        },
+    }
+
+
+def read_docs_zip(zip_path: str) -> Tuple[Dict[str, str], str, str]:
+    """Read generated markdown files from a documentation zip."""
     docs: Dict[str, str] = {}
     shared_conventions = ""
+    doc_family = "api"
     with zipfile.ZipFile(zip_path) as archive:
-        for name in archive.namelist():
-            if not name.startswith(API_DOC_PREFIX) or not name.endswith(".md"):
+        names = archive.namelist()
+        if any(name.startswith(CALLBACK_DOC_PREFIX) for name in names):
+            prefix = CALLBACK_DOC_PREFIX
+            doc_family = "callback"
+        else:
+            prefix = API_DOC_PREFIX
+
+        for name in names:
+            if not name.startswith(prefix) or not name.endswith(".md"):
                 continue
             content = archive.read(name).decode("utf-8")
-            relative = name[len(API_DOC_PREFIX):]
+            relative = name[len(prefix):]
             if relative == "_shared-conventions.md":
                 shared_conventions = content
             elif relative != "_index.md":
                 docs[relative] = content
-    return docs, shared_conventions
+    return docs, shared_conventions, doc_family
 
 
 async def ensure_api_specs_v2_ingestion_schema() -> None:
@@ -352,6 +496,7 @@ async def ensure_api_specs_v2_ingestion_schema() -> None:
     async with database.pool.acquire() as conn:
         await conn.execute("ALTER TABLE api_specs_v2 ADD COLUMN IF NOT EXISTS business_use_case TEXT")
         await conn.execute("ALTER TABLE api_specs_v2 ADD COLUMN IF NOT EXISTS business_use_case_embedding JSONB")
+        await conn.execute("ALTER TABLE api_specs_v2 ADD COLUMN IF NOT EXISTS when_newton_sends_it TEXT")
         await conn.execute("ALTER TABLE api_specs_v2 ADD COLUMN IF NOT EXISTS source_doc_id TEXT")
         await conn.execute("ALTER TABLE api_specs_v2 ADD COLUMN IF NOT EXISTS source_file TEXT")
         await conn.execute("ALTER TABLE api_specs_v2 ADD COLUMN IF NOT EXISTS source_hash TEXT")
@@ -367,7 +512,29 @@ async def _replace_chunks(doc_id: str, chunks: List[str], namespace: str,
         await database.insert_text_chunk(doc_id, index, chunk, embeddings[index], namespace)
 
 
-async def _insert_legacy_endpoint(spec: Dict[str, Any]) -> None:
+async def _existing_api_spec_ids(endpoint_ids: List[str]) -> set[str]:
+    if not endpoint_ids:
+        return set()
+    async with database.pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT endpoint_id FROM api_specs_v2 WHERE endpoint_id = ANY($1::text[])",
+            endpoint_ids,
+        )
+    return {row["endpoint_id"] for row in rows}
+
+
+async def _endpoint_spec_exists(endpoint_id: str) -> bool:
+    async with database.pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            "SELECT 1 FROM endpoint_specs WHERE endpoint_id = $1",
+            endpoint_id,
+        ))
+
+
+async def _insert_legacy_endpoint(spec: Dict[str, Any], update_existing_only: bool = False) -> bool:
+    if update_existing_only and not await _endpoint_spec_exists(spec["endpoint_id"]):
+        return False
+
     request_schema = {"fields": spec.get("request_fields", [])}
     response_schema = {"fields": spec.get("response_fields", [])}
     spec_data = {
@@ -375,6 +542,7 @@ async def _insert_legacy_endpoint(spec: Dict[str, Any]) -> None:
         "path": spec["path"],
         "description": spec.get("description"),
         "business_use_case": spec.get("business_use_case"),
+        "when_newton_sends_it": spec.get("when_newton_sends_it"),
         **spec.get("spec_data", {}),
     }
     await database.insert_endpoint_spec(
@@ -390,24 +558,34 @@ async def _insert_legacy_endpoint(spec: Dict[str, Any]) -> None:
         is_ground_truth=True,
         source_doc_id=spec.get("source_doc_id"),
     )
+    return True
 
 
 async def ingest_docs_zip(zip_path: str, source_name: str = DEFAULT_SOURCE_NAME,
                           skip_embeddings: bool = False, dry_run: bool = False) -> dict:
     """Ingest generated API markdown docs into documents, chunks, and API spec tables."""
-    docs, shared_conventions = read_docs_zip(zip_path)
-    specs = [parse_api_markdown(path, content) for path, content in sorted(docs.items())]
+    docs, shared_conventions, doc_family = read_docs_zip(zip_path)
+    if doc_family == "callback" and source_name == DEFAULT_SOURCE_NAME:
+        source_name = "callback_api_docs"
+
+    parser = parse_callback_markdown if doc_family == "callback" else parse_api_markdown
+    parsed_items = [
+        (path, content, parser(path, content))
+        for path, content in sorted(docs.items())
+    ]
 
     if source_name != DEFAULT_SOURCE_NAME:
-        for spec in specs:
+        for _, _, spec in parsed_items:
             spec["source_doc_id"] = spec["source_doc_id"].replace(DEFAULT_SOURCE_NAME, source_name, 1)
 
     if dry_run:
+        specs = [spec for _, _, spec in parsed_items]
         return {
             "content": [{
                 "type": "text",
                 "text": (
                     f"Dry run parsed {len(specs)} API docs from {zip_path}.\n"
+                    f"Document family: {doc_family}\n"
                     f"First endpoint: {specs[0]['endpoint_id'] if specs else 'none'}\n"
                     f"Business use cases detected: {sum(1 for spec in specs if spec.get('business_use_case'))}"
                 ),
@@ -417,39 +595,72 @@ async def ingest_docs_zip(zip_path: str, source_name: str = DEFAULT_SOURCE_NAME,
 
     await ensure_api_specs_v2_ingestion_schema()
 
+    skipped_missing_specs: List[str] = []
+    if doc_family == "callback":
+        existing_ids = await _existing_api_spec_ids([spec["endpoint_id"] for _, _, spec in parsed_items])
+        ingest_items = []
+        for path, content, spec in parsed_items:
+            if spec["endpoint_id"] in existing_ids:
+                ingest_items.append((path, content, spec))
+            else:
+                skipped_missing_specs.append(spec["endpoint_id"])
+    else:
+        ingest_items = parsed_items
+
     total_chunks = 0
+    docs_namespace = source_name
+    conventions_namespace = "s2s_api_conventions" if doc_family == "api" else f"{source_name}_conventions"
     if shared_conventions:
         doc_id = f"{source_name}__shared_conventions"
         await database.insert_document(doc_id, "_shared-conventions.md", shared_conventions, source_type="markdown")
         chunks = _chunk_text(shared_conventions)
         embeddings = [None] * len(chunks) if skip_embeddings else await _embed_batch(chunks)
-        await _replace_chunks(doc_id, chunks, "s2s_api_conventions", embeddings)
+        await _replace_chunks(doc_id, chunks, conventions_namespace, embeddings)
         total_chunks += len(chunks)
 
-    business_texts = [spec.get("business_use_case") or spec.get("description") or spec.get("summary") or "" for spec in specs]
-    business_embeddings = [None] * len(specs) if skip_embeddings else await _embed_batch(business_texts)
+    business_texts = [
+        "\n\n".join(
+            part for part in [
+                spec.get("business_use_case"),
+                spec.get("when_newton_sends_it"),
+                spec.get("description"),
+                spec.get("summary"),
+            ]
+            if part
+        )
+        for _, _, spec in ingest_items
+    ]
+    business_embeddings = [None] * len(ingest_items) if skip_embeddings else await _embed_batch(business_texts)
 
-    for index, (relative_path, content) in enumerate(sorted(docs.items())):
-        spec = specs[index]
+    legacy_updates = 0
+    legacy_skipped = 0
+    for index, (relative_path, content, spec) in enumerate(ingest_items):
         spec["business_use_case_embedding"] = business_embeddings[index]
 
         await database.insert_document(spec["source_doc_id"], relative_path, content, source_type="markdown")
         chunks = _chunk_text(content)
         embeddings = [None] * len(chunks) if skip_embeddings else await _embed_batch(chunks)
-        await _replace_chunks(spec["source_doc_id"], chunks, "s2s_api_docs", embeddings)
+        await _replace_chunks(spec["source_doc_id"], chunks, docs_namespace, embeddings)
         total_chunks += len(chunks)
 
         await insert_api_spec_v2(spec)
-        await _insert_legacy_endpoint(spec)
+        if await _insert_legacy_endpoint(spec, update_existing_only=(doc_family == "callback")):
+            legacy_updates += 1
+        else:
+            legacy_skipped += 1
 
     return {
         "content": [{
             "type": "text",
             "text": (
-                f"Ingested {len(specs)} API docs from {zip_path}.\n"
-                f"Documents/chunks namespace: s2s_api_docs\n"
+                f"Ingested {len(ingest_items)} API docs from {zip_path}.\n"
+                f"Document family: {doc_family}\n"
+                f"Documents/chunks namespace: {docs_namespace}\n"
                 f"Text chunks inserted: {total_chunks}\n"
-                f"Business-use-case embeddings: {'skipped' if skip_embeddings else len(specs)}"
+                f"Business-use-case embeddings: {'skipped' if skip_embeddings else len(ingest_items)}\n"
+                f"Legacy endpoint records updated: {legacy_updates}\n"
+                f"Legacy endpoint records skipped: {legacy_skipped}\n"
+                f"Callback specs skipped because no existing api_specs_v2 row matched: {len(skipped_missing_specs)}"
             ),
         }],
         "isError": False,

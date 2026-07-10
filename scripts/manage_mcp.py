@@ -19,6 +19,7 @@ from src.tools.admin_tools import (  # noqa: E402
     list_queryable_tables,
 )
 from src.ingestion.docs_zip_ingester import ingest_docs_zip  # noqa: E402
+from src.ingestion.npci_circular_ingester import ingest_npci_circulars  # noqa: E402
 from src.utils.database import database  # noqa: E402
 
 
@@ -62,6 +63,25 @@ async def cmd_ingest_docs_zip(args):
             source_name=args.source_name,
             skip_embeddings=args.skip_embeddings,
             dry_run=args.dry_run,
+        )
+    )
+
+
+async def cmd_ingest_npci_circulars(args):
+    if args.dry_run:
+        return await ingest_npci_circulars(
+            directory=args.directory,
+            limit=args.limit,
+            with_embeddings=args.with_embeddings,
+            dry_run=True,
+        )
+
+    return await _with_db(
+        ingest_npci_circulars(
+            directory=args.directory,
+            limit=args.limit,
+            with_embeddings=args.with_embeddings,
+            dry_run=False,
         )
     )
 
@@ -150,13 +170,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     docs_zip = subparsers.add_parser(
         "ingest-docs-zip",
-        help="Ingest generated server-to-server API markdown docs from docs.zip",
+        help="Ingest generated server-to-server API or callback markdown docs from docs.zip",
     )
     docs_zip.add_argument("zip_path")
     docs_zip.add_argument("--source-name", default="s2s_api_docs")
     docs_zip.add_argument("--skip-embeddings", action="store_true")
     docs_zip.add_argument("--dry-run", action="store_true")
     docs_zip.set_defaults(async_handler=cmd_ingest_docs_zip)
+
+    npci = subparsers.add_parser(
+        "ingest-npci-circulars",
+        help="Ingest NPCI circular PDFs into documents and text_chunks",
+    )
+    npci.add_argument("--directory", default="downloads/npci_circulars")
+    npci.add_argument("--limit", type=int)
+    npci.add_argument("--with-embeddings", action="store_true")
+    npci.add_argument("--dry-run", action="store_true")
+    npci.set_defaults(async_handler=cmd_ingest_npci_circulars)
 
     add_spec = subparsers.add_parser(
         "add-api-spec", help="Add or update a rich API spec from JSON"

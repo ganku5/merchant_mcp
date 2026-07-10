@@ -122,3 +122,5 @@ result-*
 /.codegraph
 /.omo/run-continuation
 /.pre-commit-config.yaml
+
+docs/

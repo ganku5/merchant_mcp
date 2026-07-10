@@ -25,6 +25,7 @@ CREATE TABLE api_specs_v2 (
     changelog JSONB DEFAULT '[]',
     business_use_case TEXT,
     business_use_case_embedding JSONB,
+    when_newton_sends_it TEXT,
     source_doc_id TEXT,
     source_file TEXT,
     source_hash TEXT,

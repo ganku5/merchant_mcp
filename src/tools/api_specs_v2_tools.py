@@ -27,9 +27,9 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                     INSERT INTO api_specs_v2 (
                         endpoint_id, method, path, api_version, description, summary,
                         documentation_url, changelog, rate_limit, idempotency,
-                        business_use_case, business_use_case_embedding,
+                        business_use_case, business_use_case_embedding, when_newton_sends_it,
                         source_doc_id, source_file, source_hash
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                     ON CONFLICT (endpoint_id) DO UPDATE SET
                         method = EXCLUDED.method,
                         path = EXCLUDED.path,
@@ -42,6 +42,7 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                         idempotency = EXCLUDED.idempotency,
                         business_use_case = EXCLUDED.business_use_case,
                         business_use_case_embedding = EXCLUDED.business_use_case_embedding,
+                        when_newton_sends_it = EXCLUDED.when_newton_sends_it,
                         source_doc_id = EXCLUDED.source_doc_id,
                         source_file = EXCLUDED.source_file,
                         source_hash = EXCLUDED.source_hash,
@@ -60,6 +61,7 @@ async def insert_api_spec_v2(spec: dict) -> dict:
                     json.dumps(spec.get('idempotency', {})),
                     spec.get('business_use_case'),
                     json.dumps(spec.get('business_use_case_embedding')) if spec.get('business_use_case_embedding') else None,
+                    spec.get('when_newton_sends_it'),
                     spec.get('source_doc_id'),
                     spec.get('source_file'),
                     spec.get('source_hash')
@@ -264,6 +266,9 @@ async def get_api_spec_v2(endpoint_id: str, include_samples: bool = True) -> dic
             spec_data = dict(spec_row)
             if spec_data.get('business_use_case'):
                 sections.append(f"\n## Business Use Case\n{spec_data['business_use_case']}")
+
+            if spec_data.get('when_newton_sends_it'):
+                sections.append(f"\n## When Newton Sends It\n{spec_data['when_newton_sends_it']}")
             
             # Get headers
             headers = await db_conn.fetch("""
