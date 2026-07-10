@@ -12,8 +12,8 @@
 ### Option 1: Run in Current Terminal (Foreground)
 
 ```bash
-cd /home/ganesh/merchant_mcp
-source /home/ganesh/context_mcp/load.env
+cd "$HOME/merchant_mcp"
+source "$HOME/context_mcp/load.env"
 python3 -m uvicorn src.server.mcp_server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -22,8 +22,8 @@ Keep this running in a separate terminal/window.
 ### Option 2: Run as Background Service
 
 ```bash
-cd /home/ganesh/merchant_mcp
-source /home/ganesh/context_mcp/load.env
+cd "$HOME/merchant_mcp"
+source "$HOME/context_mcp/load.env"
 nohup python3 -m uvicorn src.server.mcp_server:app --host 0.0.0.0 --port 8000 > /tmp/mcp_server.log 2>&1 &
 ```
 
@@ -33,7 +33,7 @@ Stop: `pkill -f uvicorn`
 ### Option 3: Using PM2 (If Available)
 
 ```bash
-pm2 start /home/ganesh/merchant_mcp/start_server.sh --name mcp-server
+pm2 start "$HOME/merchant_mcp/start_server.sh" --name mcp-server
 pm2 save
 pm2 startup
 ```
@@ -53,7 +53,7 @@ Add this to your OpenCode MCP settings:
         "--host", "0.0.0.0",
         "--port", "8000"
       ],
-      "cwd": "/home/ganesh/merchant_mcp",
+      "cwd": "/path/to/merchant_mcp",
       "env": {
         "DATABASE_URL": "postgresql://postgres@localhost:5432/mcp_product_context",
         "LITELLM_LLM_API_BASE": "https://grid.ai.juspay.net/",
@@ -110,13 +110,13 @@ python3 scripts/manage_mcp.py ingest ./docs/API_COOKBOOK.md
 python3 scripts/manage_mcp.py ingest ./api_specs/openapi.json --type json
 
 # Ingest generated S2S API documentation from docs.zip into documents, chunks, api_specs_v2, and endpoint_specs
-python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/docs.zip
-python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/docs.zip --dry-run
+python3 scripts/manage_mcp.py ingest-docs-zip "$HOME/Downloads/docs.zip"
+python3 scripts/manage_mcp.py ingest-docs-zip "$HOME/Downloads/docs.zip" --dry-run
 
 # Ingest generated callback documentation. Callback specs are update-only:
 # existing newton.callbacks.* records are refreshed; missing callback records are skipped.
-python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/callback-docs.zip
-python3 scripts/manage_mcp.py ingest-docs-zip /home/ganesh/Downloads/callback-docs.zip --skip-embeddings
+python3 scripts/manage_mcp.py ingest-docs-zip "$HOME/Downloads/callback-docs.zip"
+python3 scripts/manage_mcp.py ingest-docs-zip "$HOME/Downloads/callback-docs.zip" --skip-embeddings
 
 # Ingest NPCI circular PDFs from this repo's downloads folder into documents/text_chunks
 python3 scripts/manage_mcp.py ingest-npci-circulars --directory downloads/npci_circulars
@@ -182,7 +182,7 @@ The integration agent uses OpenCode CLI by default for the synthesis/tool-comman
 
 ```bash
 export AGENT_RESPONSE_BACKEND="opencode"
-export OPENCODE_BIN_DIR="/home/ganesh/.opencode/bin"
+export OPENCODE_BIN_DIR="$HOME/.opencode/bin"
 export OPENCODE_CLI_COMMAND="opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
 export OPENCODE_CLI_TIMEOUT_SECONDS="600"
 export OPENCODE_WORKDIR="/tmp/merchant_mcp_opencode"
@@ -230,7 +230,7 @@ curl -X POST http://localhost:8000/mcp \
 If server won't start:
 1. Check if port 8000 is free: `lsof -i :8000`
 2. Check database connection: `psql -h localhost -U postgres -d mcp_product_context`
-3. Check environment: `cat /home/ganesh/context_mcp/load.env`
+3. Check environment: `cat "$HOME/context_mcp/load.env"`
 
 ## Logs
 

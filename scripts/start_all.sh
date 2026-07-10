@@ -3,7 +3,7 @@
 
 set -e
 
-cd /home/ganesh/merchant_mcp
+cd "$(dirname "$0")/.."
 
 echo "======================================"
 echo "Merchant MCP - Full Setup"

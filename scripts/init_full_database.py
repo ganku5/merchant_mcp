@@ -3,7 +3,9 @@
 
 import asyncio
 import sys
-sys.path.insert(0, '/home/ganesh/merchant_mcp')
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import asyncpg
 from src.utils.config import Config
@@ -213,41 +215,49 @@ CREATE TRIGGER update_flows_updated_at BEFORE UPDATE ON integration_flows
 async def init_database():
     """Initialize database schema."""
     print(f"Connecting to database at {Config.DB_HOST}:{Config.DB_PORT}...")
-    
+
     conn = await asyncpg.connect(
         host=Config.DB_HOST,
         port=Config.DB_PORT,
         database=Config.DB_NAME,
         user=Config.DB_USER,
-        password=Config.DB_PASSWORD
+        password=Config.DB_PASSWORD,
     )
-    
+
     try:
         print("Creating schema...")
         await conn.execute(CREATE_SCHEMA_SQL)
         print("✅ Schema created successfully")
-        
+
         # Count existing tables
         tables = await conn.fetch("""
             SELECT table_name 
             FROM information_schema.tables 
             WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
         """)
-        table_names = [t['table_name'] for t in tables]
+        table_names = [t["table_name"] for t in tables]
         print(f"✅ {len(tables)} tables ready: {', '.join(table_names)}")
-        
+
         # Check if essential tables exist
         required_tables = [
-            'documents', 'text_chunks', 'endpoint_specs', 'error_codes',
-            'integration_flows', 'webhook_events', 'code_templates',
-            'test_scenarios', 'known_issues', 'sandbox_sessions', 'request_logs'
+            "documents",
+            "text_chunks",
+            "endpoint_specs",
+            "error_codes",
+            "integration_flows",
+            "webhook_events",
+            "code_templates",
+            "test_scenarios",
+            "known_issues",
+            "sandbox_sessions",
+            "request_logs",
         ]
         missing = [t for t in required_tables if t not in table_names]
         if missing:
             print(f"⚠️ Missing tables: {missing}")
         else:
             print("✅ All required tables present")
-        
+
     finally:
         await conn.close()
 

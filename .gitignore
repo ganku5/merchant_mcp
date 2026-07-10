@@ -112,4 +112,15 @@ src/**/__pycache__/
 src/server/mcp_stdio_docs.py
 scripts/test_ingest_npci_ocs_2.py
 
+# Nix / uv
+.venv/
+.direnv/
+.devenv/
+result
+result-*
+.uv-cache/
+/.codegraph
+/.omo/run-continuation
+/.pre-commit-config.yaml
+
 docs/
