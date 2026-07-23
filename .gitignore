@@ -19,3 +19,11 @@ src/server/mcp_stdio_docs.py
 scripts/test_ingest_npci_ocs_2.py
 api_specs/upi/*.json
 load.env
+
+# Context generator outputs
+context_generator/generated/
+context_generator/__pycache__/
+context_generator/workers/__pycache__/
+
+# Generated docs zip
+docs_s2s.zip
