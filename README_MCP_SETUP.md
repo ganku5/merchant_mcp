@@ -176,19 +176,15 @@ Ingestion and context-loading are intentionally not exposed as MCP tools. Use `s
 
 ## Testing the Server
 
-The integration agent UI at `/agent` is a ChatGPT-style chatbox. The app sends the user message to OpenCode and returns OpenCode's final response. OpenCode uses its configured MCP servers directly; the app does not parse tool-call JSON or pass MCP tool results back to OpenCode.
+The integration agent UI at `/agent` is a ChatGPT-style chatbox. The app sends the user message to the LLM (via litellm) which orchestrates MCP tool calls in-process and returns the final synthesized response. No external agent runtime is required.
 
-The integration agent uses OpenCode CLI by default for the synthesis/tool-command loop:
+The integration agent uses litellm's native tool-calling with the same `LLM_MODEL` configured for the server:
 
 ```bash
-export AGENT_RESPONSE_BACKEND="opencode"
-export OPENCODE_BIN_DIR="$HOME/.opencode/bin"
-export OPENCODE_CLI_COMMAND="opencode run --dir /tmp/merchant_mcp_opencode --model litellm/open-fast --no-replay {prompt}"
-export OPENCODE_CLI_TIMEOUT_SECONDS="600"
-export OPENCODE_WORKDIR="/tmp/merchant_mcp_opencode"
+export LLM_MODEL="kimi-latest"
+export LITELLM_LLM_API_BASE="https://your-litellm-proxy/"
+export LITELLM_LLM_API_KEY="your_key"
 ```
-
-The command is executed without a shell. `{prompt}` is replaced with the agent prompt as one command argument. `OPENCODE_BIN_DIR` is prepended to the child process `PATH`, so `OPENCODE_CLI_COMMAND` can use `opencode` without an absolute path. OpenCode runs from `/tmp/merchant_mcp_opencode` so it does not start repo file watchers on `.git`; this avoids `inotify_add_watch ... No space left on device` failures. The OpenCode config uses `JUSPAY_API_KEY`; the server maps the MCP `LITELLM_LLM_API_KEY` to that env var for the child process.
 
 ```bash
 # Health check

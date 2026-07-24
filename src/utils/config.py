@@ -23,11 +23,6 @@ class Config:
     LLM_MODEL: str = "kimi-latest"
     LITELLM_LLM_API_BASE: str = ""
     LITELLM_LLM_API_KEY: str = ""
-    AGENT_RESPONSE_BACKEND: str = "opencode"
-    OPENCODE_BIN_DIR: str = os.path.expanduser("~/.opencode/bin")
-    OPENCODE_CLI_COMMAND: str = "opencode run --dir /tmp/merchant_mcp_opencode --model litellm/kimi-latest --no-replay {prompt}"
-    OPENCODE_CLI_TIMEOUT_SECONDS: int = 600
-    OPENCODE_WORKDIR: str = "/tmp/merchant_mcp_opencode"
 
     # Embeddings
     EMBEDDING_MODEL: str = "openai/embed-marqo-ecommerce-b"
