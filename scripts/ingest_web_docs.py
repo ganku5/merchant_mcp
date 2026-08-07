@@ -2,16 +2,16 @@
 """Scrape web docs, convert to structured markdown, and optionally ingest.
 
 Usage:
-    # From env (WEB_SCRAPER_URLS="url1,url2")
+    # Scrape from env (WEB_SCRAPER_URLS="url1,url2")
     uv run python scripts/ingest_web_docs.py
 
-    # From file
+    # Scrape from file
     uv run python scripts/ingest_web_docs.py --urls-file urls.txt
 
     # Scrape + ingest in one step
     uv run python scripts/ingest_web_docs.py --urls-file urls.txt --ingest
 
-    # Just ingest an existing scraped_docs/ dir
+    # Just ingest an existing scraped_docs/ dir (no re-scraping)
     uv run python scripts/ingest_web_docs.py --ingest
 """
 
@@ -35,7 +35,9 @@ def collect_urls(urls_file: str | None) -> list[str]:
 
     if urls_file:
         with open(urls_file, encoding="utf-8") as f:
-            urls.extend(line.strip() for line in f if line.strip() and not line.startswith("#"))
+            urls.extend(
+                line.strip() for line in f if line.strip() and not line.startswith("#")
+            )
 
     seen: set[str] = set()
     deduped: list[str] = []
@@ -48,15 +50,27 @@ def collect_urls(urls_file: str | None) -> list[str]:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Scrape web docs and convert to structured markdown")
+    parser = argparse.ArgumentParser(
+        description="Scrape web docs and convert to structured markdown"
+    )
     parser.add_argument("--urls-file", help="File with one URL per line")
-    parser.add_argument("--ingest", action="store_true", help="Ingest scraped docs after conversion")
-    parser.add_argument("--output-dir", default=None, help="Output directory (default: scraped_docs)")
+    parser.add_argument(
+        "--ingest",
+        action="store_true",
+        help="Ingest scraped docs (use alone to ingest without re-scraping)",
+    )
+    parser.add_argument(
+        "--output-dir", default=None, help="Output directory (default: scraped_docs)"
+    )
     args = parser.parse_args()
 
     ingester = WebDocIngester(output_dir=args.output_dir)
 
-    if args.urls_file or Config.WEB_SCRAPER_URLS.strip():
+    do_scrape = args.urls_file is not None or (
+        not args.ingest and Config.WEB_SCRAPER_URLS.strip()
+    )
+
+    if do_scrape:
         urls = collect_urls(args.urls_file)
         if not urls:
             print("No URLs found. Set WEB_SCRAPER_URLS or use --urls-file.")
@@ -70,7 +84,9 @@ async def main():
         errors = sum(1 for r in results if r["status"] == "fetch_error")
         files_written = sum(len(r.get("files_written", [])) for r in results)
 
-        print(f"\nDone: {ok} ok, {skipped} skipped, {errors} errors, {files_written} files written")
+        print(
+            f"\nDone: {ok} ok, {skipped} skipped, {errors} errors, {files_written} files written"
+        )
         print(f"Output: {ingester.output_dir}/")
         print(f"Log: {ingester.output_dir}/_conversion_log.json")
 
@@ -80,6 +96,7 @@ async def main():
 
     if args.ingest:
         from src.utils.database import database
+
         await database.connect()
         print("\nIngesting scraped docs...")
         result = await ingester.ingest()
