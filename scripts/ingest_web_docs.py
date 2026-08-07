@@ -60,14 +60,21 @@ async def main():
         help="Ingest scraped docs (use alone to ingest without re-scraping)",
     )
     parser.add_argument(
+        "--scrape",
+        action="store_true",
+        help="Force re-scrape even when --ingest is used with env URLs",
+    )
+    parser.add_argument(
         "--output-dir", default=None, help="Output directory (default: scraped_docs)"
     )
     args = parser.parse_args()
 
     ingester = WebDocIngester(output_dir=args.output_dir)
 
-    do_scrape = args.urls_file is not None or (
-        not args.ingest and Config.WEB_SCRAPER_URLS.strip()
+    do_scrape = (
+        args.urls_file is not None
+        or args.scrape
+        or (not args.ingest and Config.WEB_SCRAPER_URLS.strip())
     )
 
     if do_scrape:
