@@ -33,6 +33,11 @@ class Config:
     MCP_PORT: int = 8000
     MCP_TRANSPORT: str = "sse"
 
+    # Web scraping / doc conversion
+    WEB_SCRAPER_URLS: str = ""
+    WEB_SCRAPER_OUTPUT_DIR: str = "scraped_docs"
+    CONVERSION_LLM_MODEL: str = ""
+
     @classmethod
     def load(cls):
         """Apply environment overrides on top of defaults."""

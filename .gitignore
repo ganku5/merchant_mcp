@@ -124,3 +124,5 @@ result-*
 /.pre-commit-config.yaml
 
 docs/
+scraped_docs/
+scraped_docs.zip
