@@ -83,10 +83,11 @@ Initiates a UPI collect payment request to a customer's VPA.
 """
 
 
-def _mock_httpx_response(html: str):
+def _mock_httpx_response(html: str, content_type: str = "text/html"):
     resp = AsyncMock()
     resp.text = html
     resp.raise_for_status = MagicMock(return_value=None)
+    resp.headers = {"content-type": content_type}
     return resp
 
 
@@ -107,16 +108,22 @@ async def test_scrape_and_convert_happy_path(ingester):
     mock_resp = _mock_httpx_response(SAMPLE_HTML)
     mock_llm = _mock_litellm_response(SAMPLE_LLM_OUTPUT)
 
-    with patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls, \
-         patch("src.ingestion.web_scraper.litellm.acompletion", new=AsyncMock(return_value=mock_llm)):
-
+    with (
+        patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls,
+        patch(
+            "src.ingestion.web_scraper.litellm.acompletion",
+            new=AsyncMock(return_value=mock_llm),
+        ),
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.get = AsyncMock(return_value=mock_resp)
         mock_client_cls.return_value = mock_client
 
-        results = await ingester.scrape_and_convert(["https://docs.example.com/api/collect"])
+        results = await ingester.scrape_and_convert(
+            ["https://docs.example.com/api/collect"]
+        )
 
     assert len(results) == 1
     assert results[0]["status"] == "ok"
@@ -155,12 +162,18 @@ async def test_fetch_error_handled(ingester):
 @pytest.mark.asyncio
 async def test_skip_non_api_page(ingester):
     """LLM returns SKIP for non-API pages."""
-    mock_resp = _mock_httpx_response("<html><body><h1>Welcome to our blog about payments</h1><p>This is a blog post about payment trends in the industry. It covers various topics but does not document any API endpoint.</p></body></html>")
+    mock_resp = _mock_httpx_response(
+        "<html><body><h1>Welcome to our blog about payments</h1><p>This is a blog post about payment trends in the industry. It covers various topics but does not document any API endpoint.</p></body></html>"
+    )
     mock_llm = _mock_litellm_response("SKIP")
 
-    with patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls, \
-         patch("src.ingestion.web_scraper.litellm.acompletion", new=AsyncMock(return_value=mock_llm)):
-
+    with (
+        patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls,
+        patch(
+            "src.ingestion.web_scraper.litellm.acompletion",
+            new=AsyncMock(return_value=mock_llm),
+        ),
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -185,9 +198,13 @@ async def test_multi_endpoint_page(ingester):
     mock_resp = _mock_httpx_response(SAMPLE_HTML)
     mock_llm = _mock_litellm_response(multi_output)
 
-    with patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls, \
-         patch("src.ingestion.web_scraper.litellm.acompletion", new=AsyncMock(return_value=mock_llm)):
-
+    with (
+        patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls,
+        patch(
+            "src.ingestion.web_scraper.litellm.acompletion",
+            new=AsyncMock(return_value=mock_llm),
+        ),
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -209,9 +226,13 @@ async def test_llm_failure_returns_empty(ingester):
     """LLM call failure doesn't crash, returns empty list."""
     mock_resp = _mock_httpx_response(SAMPLE_HTML)
 
-    with patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls, \
-         patch("src.ingestion.web_scraper.litellm.acompletion", new=AsyncMock(side_effect=Exception("LLM unreachable"))):
-
+    with (
+        patch("src.ingestion.web_scraper.httpx.AsyncClient") as mock_client_cls,
+        patch(
+            "src.ingestion.web_scraper.litellm.acompletion",
+            new=AsyncMock(side_effect=Exception("LLM unreachable")),
+        ),
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -263,6 +284,7 @@ def test_zip_output(ingester):
     assert Path(zip_path).exists()
 
     import zipfile
+
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
         assert "server-to-server-apis/test1.md" in names

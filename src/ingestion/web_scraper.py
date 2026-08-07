@@ -307,15 +307,39 @@ class WebDocIngester:
             resp.raise_for_status()
         except Exception as exc:
             logger.error("fetch failed for %s: %s", url, exc)
-            return {"source_url": url, "status": "fetch_error", "reason": str(exc)[:200]}
+            return {
+                "source_url": url,
+                "status": "fetch_error",
+                "reason": str(exc)[:200],
+            }
 
-        markdown = self._html_to_markdown(resp.text, url)
+        content_type = resp.headers.get("content-type", "")
+        if url.endswith(".md") or "text/markdown" in content_type:
+            markdown = resp.text
+        else:
+            markdown = self._html_to_markdown(resp.text, url)
+            if self._is_js_spa(markdown):
+                logger.info(
+                    "detected JS-rendered page, falling back to Playwright for %s", url
+                )
+                rendered = await self._render_with_playwright(url)
+                if rendered:
+                    markdown = self._html_to_markdown(rendered, url)
+
         if not markdown or len(markdown.strip()) < 100:
-            return {"source_url": url, "status": "skipped", "reason": "Page too short or empty after conversion."}
+            return {
+                "source_url": url,
+                "status": "skipped",
+                "reason": "Page too short or empty after conversion.",
+            }
 
         files = await self._llm_convert(markdown, url)
         if not files:
-            return {"source_url": url, "status": "skipped", "reason": "LLM determined this page is not API/callback documentation."}
+            return {
+                "source_url": url,
+                "status": "skipped",
+                "reason": "LLM determined this page is not API/callback documentation.",
+            }
 
         written = []
         for filename, content in files:
@@ -334,12 +358,60 @@ class WebDocIngester:
         }
 
     @staticmethod
+    def _is_js_spa(markdown: str) -> bool:
+        if not markdown:
+            return False
+        script_indicators = (
+            "createElement",
+            "document.",
+            "window.",
+            "addEventListener",
+            ".appendChild(",
+            "getElementsByTagName",
+            "preconnect",
+            "dns-prefetch",
+        )
+        script_hits = sum(1 for ind in script_indicators if ind in markdown)
+        return script_hits >= 4
+
+    @staticmethod
+    async def _render_with_playwright(url: str) -> Optional[str]:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            logger.warning("playwright not installed; cannot render JS pages")
+            return None
+
+        import shutil
+
+        executable = shutil.which("chromium") or shutil.which("chromium-browser")
+
+        try:
+            async with async_playwright() as p:
+                launch_kwargs = {"headless": True}
+                if executable:
+                    launch_kwargs["executable_path"] = executable
+                browser = await p.chromium.launch(**launch_kwargs)
+                page = await browser.new_page()
+                await page.goto(url, wait_until="networkidle", timeout=30000)
+                await page.wait_for_timeout(3000)
+                html = await page.content()
+                await browser.close()
+                return html
+        except Exception as exc:
+            logger.error("playwright render failed for %s: %s", url, exc)
+            return None
+
+    @staticmethod
     def _html_to_markdown(html: str, url: str) -> str:
         try:
             from markitdown import MarkItDown
+
             md = MarkItDown()
             result = md.convert(html)
-            text = result.text_content if hasattr(result, "text_content") else str(result)
+            text = (
+                result.text_content if hasattr(result, "text_content") else str(result)
+            )
         except Exception:
             text = re.sub(r"<[^>]+>", "", html)
 
@@ -349,10 +421,13 @@ class WebDocIngester:
         return text.strip()
 
     async def _llm_convert(self, markdown: str, url: str) -> List[Tuple[str, str]]:
-        truncated = markdown[:12000]
+        truncated = markdown[:8000]
         messages = [
             {"role": "system", "content": CONVERSION_PROMPT},
-            {"role": "user", "content": f"Source URL: {url}\n\n--- RAW MARKDOWN ---\n{truncated}"},
+            {
+                "role": "user",
+                "content": f"Source URL: {url}\n\n--- RAW MARKDOWN ---\n{truncated}",
+            },
         ]
 
         try:
@@ -360,7 +435,7 @@ class WebDocIngester:
                 model=self.model,
                 messages=messages,
                 temperature=0.1,
-                max_tokens=8000,
+                max_tokens=4000,
                 api_base=Config.LITELLM_LLM_API_BASE or None,
                 api_key=Config.LITELLM_LLM_API_KEY or None,
             )
