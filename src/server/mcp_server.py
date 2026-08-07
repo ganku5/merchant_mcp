@@ -309,9 +309,9 @@ class MCPServer:
             question = body.get("question", "")
             agent = IntegrationAgent(
                 tool_schemas=TOOL_SCHEMAS,
+                tool_registry=TOOL_REGISTRY,
             )
             result = await agent.answer(question)
-            result["response_backend"] = Config.AGENT_RESPONSE_BACKEND
             return JSONResponse(result)
         
         @self.app.post("/tools/call")
@@ -625,8 +625,7 @@ class MCPServer:
   <div class="shell">
     <aside>
       <h1>Integration Agent</h1>
-      <p>Solutions-engineer chat backed by OpenCode and Merchant MCP.</p>
-      <p>Response backend: <strong>{Config.AGENT_RESPONSE_BACKEND}</strong></p>
+      <p>Solutions-engineer chat backed by litellm tool-calling and Merchant MCP.</p>
       <h2>Rules</h2>
       <ul>{rules}</ul>
       <h2>Tool Surface</h2>

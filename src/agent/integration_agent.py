@@ -1,16 +1,15 @@
-"""Rule-driven integration agent that orchestrates MCP tools."""
+"""Rule-driven integration agent that orchestrates MCP tools via litellm tool-calling."""
 
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
-import os
 import re
 import time
-import shlex
-import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Awaitable, Callable, Dict, List
+
+import litellm
 
 from ..utils.config import Config
 
@@ -32,10 +31,13 @@ AGENT_RULES = [
 
 SOLUTIONS_ENGINEER_PROMPT = """You are a senior payments solutions engineer.
 
-Use the Merchant MCP tools configured inside OpenCode whenever product, API, document, circular, integration, testing, or debugging context is needed. Do not ask the caller to run tools and do not return tool-call JSON. The application will not execute tools for you; OpenCode must use its own configured MCP integration.
-
-Answer the client directly in a natural chat style. Do not include evidence, source, trace, or tool sections. Use markdown tables for API specs, headers, request fields, response fields, error mappings, or comparisons when useful. Keep sample request and response bodies in fenced `json` code blocks.
+You have access to Merchant MCP tools for product, API, document, circular, integration, testing, and debugging context. Call tools when you need specifics; do not ask the caller to run tools. Answer the client directly in a natural chat style. Do not include evidence, source, trace, or tool sections. Use markdown tables for API specs, headers, request fields, response fields, error mappings, or comparisons when useful. Keep sample request and response bodies in fenced `json` code blocks.
 """
+
+
+ToolCallable = Callable[..., Awaitable[Dict[str, Any]]]
+
+_MAX_TOOL_ITERATIONS = 8
 
 
 @dataclass
@@ -62,11 +64,49 @@ class AgentStep:
         }
 
 
-class IntegrationAgent:
-    """OpenCode-driven chat agent; OpenCode owns MCP tool use internally."""
+def _mcp_schemas_to_litellm_tools(
+    tool_schemas: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Convert MCP tool schemas to litellm/OpenAI function-calling format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": schema.get("description", ""),
+                "parameters": schema.get("inputSchema", {"type": "object", "properties": {}}),
+            },
+        }
+        for name, schema in sorted(tool_schemas.items())
+    ]
 
-    def __init__(self, tool_schemas: Dict[str, Dict] | None = None):
+
+def _extract_tool_text(result: Dict[str, Any]) -> str:
+    """Flatten an MCP tool result dict into a single text string for the LLM."""
+    content = result.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    return json.dumps(result, default=str, ensure_ascii=False)
+
+
+class IntegrationAgent:
+    """In-process agent: litellm tool-calling loop over the MCP tool registry."""
+
+    def __init__(
+        self,
+        tool_schemas: Dict[str, Dict] | None = None,
+        tool_registry: Dict[str, ToolCallable] | None = None,
+    ):
         self.tool_schemas = tool_schemas or {}
+        self.tool_registry = tool_registry or {}
 
     async def answer(self, question: str) -> Dict[str, Any]:
         question = (question or "").strip()
@@ -85,15 +125,15 @@ class IntegrationAgent:
         steps.append(AgentStep(
             "classify",
             "Classified request",
-            detail=f"Intent: {intent}. OpenCode will answer using its configured MCP servers when needed.",
+            detail=f"Intent: {intent}.",
         ))
 
-        answer = await self._run_opencode_chat(question, intent, steps)
+        answer = await self._run_tool_calling_loop(question, intent, steps)
 
         steps.append(AgentStep(
             "answer",
-            "Received OpenCode response",
-            detail="The final response was produced by OpenCode.",
+            "Generated response",
+            detail="Final response produced by the LLM after tool orchestration.",
         ))
 
         return {
@@ -129,286 +169,122 @@ class IntegrationAgent:
             return "testing"
         return "general_documentation"
 
-    async def _run_opencode_chat(
+    async def _run_tool_calling_loop(
         self,
         question: str,
         intent: str,
         steps: List[AgentStep],
     ) -> str:
-        messages = [
+        tools = _mcp_schemas_to_litellm_tools(self.tool_schemas)
+        messages: List[Dict[str, Any]] = [
             {"role": "system", "content": SOLUTIONS_ENGINEER_PROMPT},
             {
                 "role": "user",
                 "content": (
                     f"Client question: {question}\n"
                     f"Classified intent: {intent}\n\n"
-                    "Use the configured Merchant MCP inside OpenCode if needed, then answer the client directly."
+                    "Use the available MCP tools when needed, then answer the client directly."
                 ),
             },
         ]
 
-        started = time.time()
-        try:
-            raw = await self._chat_for_agent(messages)
-            answer = self._clean_opencode_output(raw)
-            steps.append(AgentStep(
-                "opencode",
-                "OpenCode completed chat response",
-                detail=f"Returned {len(answer)} characters.",
-                response_preview=answer[:1200],
-                latency_ms=int((time.time() - started) * 1000),
-            ))
-            return answer or "OpenCode returned an empty response. Please retry the question."
-        except Exception as exc:
-            steps.append(AgentStep(
-                "opencode",
-                "OpenCode failed",
-                status="error",
-                detail=str(exc),
-                latency_ms=int((time.time() - started) * 1000),
-            ))
-            return f"I could not complete the chat because OpenCode failed: {exc}"
+        model = Config.LLM_MODEL
+        if "/" not in model and Config.LITELLM_LLM_API_BASE:
+            model = f"openai/{model}"
 
-    async def _chat_for_agent(self, messages: List[Dict[str, str]]) -> str:
-        backend = (Config.AGENT_RESPONSE_BACKEND or "litellm").strip().lower()
-        if backend != "opencode":
-            raise RuntimeError("AGENT_RESPONSE_BACKEND must be 'opencode' for the integration agent")
-        return await self._chat_with_opencode_cli(messages)
-
-    async def _chat_with_opencode_cli(self, messages: List[Dict[str, str]]) -> str:
-        command = Config.OPENCODE_CLI_COMMAND.strip()
-        if not command:
-            raise RuntimeError("OPENCODE_CLI_COMMAND is empty")
-
-        prompt = self._messages_to_cli_prompt(messages)
-        prompt_bytes = len(prompt.encode("utf-8"))
-        parts = self._opencode_command_with_trace_flags(shlex.split(command))
-        if not parts:
-            raise RuntimeError("OPENCODE_CLI_COMMAND did not parse into a command")
-
-        workdir = Config.OPENCODE_WORKDIR or "/tmp/merchant_mcp_opencode"
-        os.makedirs(workdir, exist_ok=True)
-
-        use_stdin = True
-        args = []
-        for part in parts:
-            if "{prompt}" in part:
-                args.append(part.replace("{prompt}", prompt))
-                use_stdin = False
-            else:
-                args.append(part)
-
-        timeout_seconds = max(600, int(Config.OPENCODE_CLI_TIMEOUT_SECONDS))
-        logger.info(
-            "opencode.start command=%s prompt_bytes=%s timeout_seconds=%s cwd=%s",
-            self._redacted_command_preview(args),
-            prompt_bytes,
-            timeout_seconds,
-            workdir,
-        )
-        self._print_opencode_log(
-            "start",
-            (
-                f"command={self._redacted_command_preview(args)} "
-                f"prompt_bytes={prompt_bytes} timeout_seconds={timeout_seconds} cwd={workdir}"
-            ),
-        )
-        started = time.time()
-        stdin_config = asyncio.subprocess.PIPE if use_stdin else asyncio.subprocess.DEVNULL
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdin=stdin_config,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=workdir,
-            env=self._opencode_env(),
-        )
-
-        stdout_chunks: List[bytes] = []
-        stderr_chunks: List[bytes] = []
-        tasks = [
-            asyncio.create_task(self._write_opencode_stdin(
-                proc,
-                prompt.encode("utf-8") if use_stdin else None,
-            )),
-            asyncio.create_task(self._read_opencode_stream("stdout", proc.stdout, stdout_chunks)),
-            asyncio.create_task(self._read_opencode_stream("stderr", proc.stderr, stderr_chunks)),
-            asyncio.create_task(proc.wait()),
-        ]
-        try:
-            await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout_seconds)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            for task in tasks:
-                task.cancel()
-            elapsed_ms = int((time.time() - started) * 1000)
-            logger.error(
-                "opencode.timeout elapsed_ms=%s prompt_bytes=%s command=%s",
-                elapsed_ms,
-                prompt_bytes,
-                self._redacted_command_preview(args),
-            )
-            raise RuntimeError(
-                f"OpenCode CLI timed out after {timeout_seconds}s "
-                f"(prompt_bytes={prompt_bytes}, cwd={workdir})"
-            )
-
-        stdout = b"".join(stdout_chunks)
-        stderr = b"".join(stderr_chunks)
-        out = stdout.decode("utf-8", errors="replace").strip()
-        err = stderr.decode("utf-8", errors="replace").strip()
-        elapsed_ms = int((time.time() - started) * 1000)
-        logger.info(
-            "opencode.finish returncode=%s elapsed_ms=%s stdout_bytes=%s stderr_bytes=%s",
-            proc.returncode,
-            elapsed_ms,
-            len(stdout),
-            len(stderr),
-        )
-        self._print_opencode_log(
-            "finish",
-            (
-                f"returncode={proc.returncode} elapsed_ms={elapsed_ms} "
-                f"stdout_bytes={len(stdout)} stderr_bytes={len(stderr)}"
-            ),
-        )
-        if proc.returncode != 0:
-            detail = err or out or f"exit code {proc.returncode}"
-            raise RuntimeError(f"OpenCode CLI failed: {detail[:1200]}")
-        if not out:
-            raise RuntimeError(f"OpenCode CLI returned no stdout. stderr: {err[:1200]}")
-        return out
-
-    @staticmethod
-    def _opencode_command_with_trace_flags(parts: List[str]) -> List[str]:
-        """Enable OpenCode runtime traces unless the operator already configured them."""
-        additions: List[str] = []
-        if not any(part == "--print-logs" for part in parts):
-            additions.append("--print-logs")
-        if not any(part == "--thinking" for part in parts):
-            additions.append("--thinking")
-        if not any(part == "--log-level" or part.startswith("--log-level=") for part in parts):
-            additions.extend(["--log-level", "DEBUG"])
-
-        if not additions:
-            return parts
-
-        prompt_index = next(
-            (index for index, part in enumerate(parts) if "{prompt}" in part),
-            len(parts),
-        )
-        return [*parts[:prompt_index], *additions, *parts[prompt_index:]]
-
-    @classmethod
-    async def _write_opencode_stdin(cls, proc: asyncio.subprocess.Process,
-                                    payload: bytes | None) -> None:
-        if proc.stdin is None:
-            return
-        try:
-            if payload:
-                proc.stdin.write(payload)
-                await proc.stdin.drain()
-        except (BrokenPipeError, ConnectionResetError):
-            cls._print_opencode_log("stdin", "OpenCode closed stdin before the prompt was fully written")
-        finally:
-            proc.stdin.close()
+        for iteration in range(_MAX_TOOL_ITERATIONS):
+            started = time.time()
             try:
-                await proc.stdin.wait_closed()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=messages,
+                    tools=tools or None,
+                    temperature=0.3,
+                    api_base=Config.LITELLM_LLM_API_BASE or None,
+                    api_key=Config.LITELLM_LLM_API_KEY or None,
+                )
+            except Exception as exc:
+                latency_ms = int((time.time() - started) * 1000)
+                steps.append(AgentStep(
+                    "llm",
+                    f"LLM call failed (iteration {iteration + 1})",
+                    status="error",
+                    detail=str(exc),
+                    latency_ms=latency_ms,
+                ))
+                return f"I could not complete the chat because the LLM call failed: {exc}"
 
-    @classmethod
-    async def _read_opencode_stream(cls, label: str,
-                                    stream: asyncio.StreamReader | None,
-                                    chunks: List[bytes]) -> None:
-        if stream is None:
-            return
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            chunks.append(line)
-            text = line.decode("utf-8", errors="replace").rstrip()
-            cls._print_opencode_log(label, text)
+            latency_ms = int((time.time() - started) * 1000)
+            choice = response.choices[0]
+            message = choice.message
 
-    @classmethod
-    def _print_opencode_log(cls, label: str, line: str) -> None:
-        safe_line = cls._redact_sensitive_text(line)
-        print(f"opencode.{label}: {safe_line}", file=sys.stderr, flush=True)
+            tool_calls = getattr(message, "tool_calls", None) or []
 
-    @staticmethod
-    def _redact_sensitive_text(text: str) -> str:
-        redacted = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "sk-<redacted>", text or "")
-        redacted = re.sub(
-            r"(?i)(api[_-]?key|token|password|authorization)(['\"]?\s*[:=]\s*['\"]?)[^'\"\s,}]+",
-            r"\1\2<redacted>",
-            redacted,
+            if not tool_calls:
+                answer = (message.content or "").strip()
+                steps.append(AgentStep(
+                    "llm",
+                    f"LLM produced final answer (iteration {iteration + 1})",
+                    detail=f"Returned {len(answer)} characters.",
+                    response_preview=answer[:1200],
+                    latency_ms=latency_ms,
+                ))
+                return answer or "The LLM returned an empty response. Please retry the question."
+
+            messages.append(message.model_dump(exclude_none=True))
+
+            for tool_call in tool_calls:
+                tool_name = tool_call.function.name
+                raw_args = tool_call.function.arguments or "{}"
+                try:
+                    arguments = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                except json.JSONDecodeError:
+                    arguments = {}
+
+                tool_started = time.time()
+                step = AgentStep(
+                    "tool",
+                    f"Called {tool_name}",
+                    tool=tool_name,
+                    arguments=arguments,
+                )
+
+                handler = self.tool_registry.get(tool_name)
+                if handler is None:
+                    tool_result_text = f"Tool '{tool_name}' not found."
+                    step.status = "error"
+                    step.detail = tool_result_text
+                else:
+                    try:
+                        result = await handler(**arguments)
+                        tool_result_text = _extract_tool_text(result)
+                        step.detail = f"Returned {len(tool_result_text)} characters."
+                        step.response_preview = tool_result_text[:1200]
+                    except Exception as exc:
+                        tool_result_text = f"Tool '{tool_name}' raised: {exc}"
+                        step.status = "error"
+                        step.detail = tool_result_text
+
+                step.latency_ms = int((time.time() - tool_started) * 1000)
+                steps.append(step)
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_name,
+                    "content": tool_result_text,
+                })
+
+        steps.append(AgentStep(
+            "llm",
+            f"Reached max tool iterations ({_MAX_TOOL_ITERATIONS})",
+            status="error",
+            detail="The agent exceeded the tool-call iteration cap without producing a final answer.",
+        ))
+        return (
+            "I reached the maximum number of tool lookups without producing a final answer. "
+            "Please rephrase the question or break it into smaller parts."
         )
-        return redacted
-
-    @staticmethod
-    def _redacted_command_preview(args: List[str]) -> str:
-        preview = []
-        for arg in args:
-            if len(arg) > 180:
-                preview.append(f"{arg[:180]}...[{len(arg)} chars]")
-            else:
-                preview.append(arg)
-        return " ".join(shlex.quote(part) for part in preview)
-
-    @staticmethod
-    def _opencode_env() -> Dict[str, str]:
-        env = os.environ.copy()
-        opencode_bin_dir = (Config.OPENCODE_BIN_DIR or "").strip()
-        if opencode_bin_dir:
-            env["PATH"] = f"{opencode_bin_dir}:{env.get('PATH', '')}"
-
-        if Config.LITELLM_LLM_API_KEY:
-            env.setdefault("LITELLM_LLM_API_KEY", Config.LITELLM_LLM_API_KEY)
-            env.setdefault("OPENAI_API_KEY", Config.LITELLM_LLM_API_KEY)
-            env.setdefault("JUSPAY_API_KEY", Config.LITELLM_LLM_API_KEY)
-        if Config.LITELLM_LLM_API_BASE:
-            env.setdefault("LITELLM_LLM_API_BASE", Config.LITELLM_LLM_API_BASE)
-            env.setdefault("OPENAI_BASE_URL", Config.LITELLM_LLM_API_BASE)
-        if Config.LLM_MODEL:
-            env.setdefault("LLM_MODEL", Config.LLM_MODEL)
-        return env
-
-    @staticmethod
-    def _messages_to_cli_prompt(messages: List[Dict[str, str]]) -> str:
-        rendered = []
-        for message in messages:
-            role = message.get("role", "user").upper()
-            content = message.get("content", "")
-            rendered.append(f"{role}:\n{content}")
-        return "\n\n".join(rendered)
-
-    @staticmethod
-    def _clean_opencode_output(raw: str) -> str:
-        text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", raw or "").strip()
-        lines = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("> ") and "·" in stripped:
-                continue
-            lines.append(line)
-
-        if any(line.strip().startswith("Thinking:") for line in lines):
-            answer_start = 0
-            for index, line in enumerate(lines):
-                stripped = line.strip()
-                if stripped.startswith("Thinking:") or stripped.startswith("Let me "):
-                    answer_start = index + 1
-            while answer_start < len(lines) and not lines[answer_start].strip():
-                answer_start += 1
-            lines = lines[answer_start:]
-
-        lines = [
-            line for line in lines
-            if not line.strip().startswith("Thinking:")
-        ]
-        return "\n".join(lines).strip()
 
     def _available_tools(self) -> List[Dict[str, str]]:
         return [
