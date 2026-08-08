@@ -8,6 +8,12 @@ Usage:
     # Scrape from file
     uv run python scripts/ingest_web_docs.py --urls-file urls.txt
 
+    # Crawl from a root URL (discovers all doc pages automatically)
+    uv run python scripts/ingest_web_docs.py --crawl https://juspay.io/in/docs/
+
+    # Crawl + ingest
+    uv run python scripts/ingest_web_docs.py --crawl https://juspay.io/in/docs/ --ingest
+
     # Scrape + ingest in one step
     uv run python scripts/ingest_web_docs.py --urls-file urls.txt --ingest
 
@@ -65,11 +71,49 @@ async def main():
         help="Force re-scrape even when --ingest is used with env URLs",
     )
     parser.add_argument(
+        "--crawl",
+        metavar="ROOT_URL",
+        help="Crawl from a root URL, discover doc pages, then scrape all",
+    )
+    parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="Max crawl depth (default: from WEB_SCRAPER_MAX_CRAWL_DEPTH env or 3)",
+    )
+    parser.add_argument(
+        "--max-urls",
+        type=int,
+        default=None,
+        help="Max URLs to scrape (default: from WEB_SCRAPER_MAX_URLS env or 200)",
+    )
+    parser.add_argument(
         "--output-dir", default=None, help="Output directory (default: scraped_docs)"
     )
     args = parser.parse_args()
 
-    ingester = WebDocIngester(output_dir=args.output_dir)
+    ingester = WebDocIngester(
+        output_dir=args.output_dir,
+        max_crawl_depth=args.max_depth,
+        max_urls=args.max_urls,
+    )
+
+    if args.crawl:
+        print(f"Crawling from {args.crawl}...")
+        results = await ingester.crawl_and_scrape(args.crawl)
+        ok = sum(1 for r in results if r["status"] == "ok")
+        skipped = sum(1 for r in results if r["status"] == "skipped")
+        errors = sum(1 for r in results if r["status"] == "fetch_error")
+        files_written = sum(len(r.get("files_written", [])) for r in results)
+        print(
+            f"\nDone: {ok} ok, {skipped} skipped, {errors} errors, {files_written} files written"
+        )
+        print(f"Output: {ingester.output_dir}/")
+        print(f"Log: {ingester.output_dir}/_conversion_log.json")
+        if not args.ingest:
+            print("\nTo ingest: uv run python scripts/ingest_web_docs.py --ingest")
+            return
+        args.ingest = True
 
     do_scrape = (
         args.urls_file is not None

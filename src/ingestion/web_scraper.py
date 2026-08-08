@@ -274,11 +274,159 @@ class WebDocIngester:
         self,
         output_dir: Optional[str] = None,
         model: Optional[str] = None,
+        max_crawl_depth: Optional[int] = None,
+        max_urls: Optional[int] = None,
     ):
         self.output_dir = Path(output_dir or Config.WEB_SCRAPER_OUTPUT_DIR)
         self.model = model or Config.CONVERSION_LLM_MODEL or Config.LLM_MODEL
+        self.max_crawl_depth = (
+            max_crawl_depth
+            if max_crawl_depth is not None
+            else Config.WEB_SCRAPER_MAX_CRAWL_DEPTH
+        )
+        self.max_urls = (
+            max_urls if max_urls is not None else Config.WEB_SCRAPER_MAX_URLS
+        )
         if "/" not in self.model and Config.LITELLM_LLM_API_BASE:
             self.model = f"openai/{self.model}"
+
+    async def crawl_and_scrape(self, root_url: str) -> List[Dict[str, Any]]:
+        """Crawl from root_url, discover doc pages, then scrape all of them."""
+        discovered = await self._discover_urls(root_url)
+        if not discovered:
+            return [
+                {
+                    "source_url": root_url,
+                    "status": "skipped",
+                    "reason": "No doc links found during crawl.",
+                }
+            ]
+        print(f"Discovered {len(discovered)} URLs from {root_url}")
+        return await self.scrape_and_convert(discovered)
+
+    async def _discover_urls(self, root_url: str) -> List[str]:
+        """Discover doc URLs: try llms.txt first, then BFS crawl."""
+        llms_urls = await self._try_llms_txt(root_url)
+        if llms_urls:
+            print(f"Found llms.txt with {len(llms_urls)} URLs")
+            return llms_urls
+
+        return await self._crawl_urls(root_url)
+
+    async def _try_llms_txt(self, root_url: str) -> Optional[List[str]]:
+        """Check for llms.txt at common paths, follow sub-llms.txt links, extract .md URLs."""
+        from urllib.parse import urljoin, urlparse
+
+        parsed = urlparse(root_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        candidates = [
+            urljoin(root_url, "llms.txt"),
+            urljoin(root_url.rstrip("/") + "/", "llms.txt"),
+            urljoin(base, "/in/docs/llms.txt"),
+            urljoin(base, "/docs/llms.txt"),
+        ]
+
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=True,
+            headers={"User-Agent": "MerchantMCP-DocScraper/1.0"},
+        ) as client:
+            root_llms = None
+            for candidate in candidates:
+                try:
+                    resp = await client.get(candidate)
+                    if resp.status_code == 200 and resp.text.strip():
+                        root_llms = resp.text
+                        print(f"Found llms.txt at {candidate}")
+                        break
+                except Exception:
+                    continue
+
+            if not root_llms:
+                return None
+
+            md_urls = re.findall(r"https?://[^\s]+\.md", root_llms)
+            sub_llms = re.findall(r"https?://[^\s]+llms\.txt", root_llms)
+
+            for sub in sub_llms[:20]:
+                try:
+                    resp = await client.get(sub)
+                    if resp.status_code == 200 and resp.text.strip():
+                        sub_md = re.findall(r"https?://[^\s]+\.md", resp.text)
+                        md_urls.extend(sub_md)
+                except Exception:
+                    continue
+
+            if md_urls:
+                seen: set[str] = set()
+                deduped: List[str] = []
+                for u in md_urls:
+                    if u not in seen:
+                        seen.add(u)
+                        deduped.append(u)
+                return deduped[: self.max_urls]
+
+            page_urls = re.findall(r"https?://[^\s]+/docs/[^\s]+", root_llms)
+            if page_urls:
+                return page_urls[: self.max_urls]
+
+        return None
+
+    async def _crawl_urls(self, root_url: str) -> List[str]:
+        """BFS crawl: fetch each page, extract doc-like links."""
+        from urllib.parse import urljoin, urlparse
+
+        parsed_root = urlparse(root_url)
+        root_domain = parsed_root.netloc
+
+        visited: set[str] = set()
+        queue: List[tuple[str, int]] = [(root_url, 0)]
+        discovered: List[str] = []
+
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=True,
+            headers={"User-Agent": "MerchantMCP-DocScraper/1.0"},
+        ) as client:
+            while queue and len(discovered) < self.max_urls:
+                url, depth = queue.pop(0)
+                if url in visited or depth > self.max_crawl_depth:
+                    continue
+                visited.add(url)
+
+                try:
+                    resp = await client.get(url)
+                    html = resp.text
+                except Exception:
+                    continue
+
+                links = re.findall(r'href=["\']([^"\']+)["\']', html)
+                for link in links:
+                    full_url = urljoin(url, link.split("#")[0].rstrip("/"))
+                    if not full_url or full_url in visited:
+                        continue
+
+                    parsed = urlparse(full_url)
+                    if parsed.netloc != root_domain:
+                        continue
+                    if "/docs/" not in parsed.path and not full_url.endswith(".md"):
+                        continue
+
+                    if full_url not in visited:
+                        discovered.append(full_url)
+                        queue.append((full_url, depth + 1))
+
+                if url not in discovered:
+                    discovered.append(url)
+
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for u in discovered:
+            if u not in seen:
+                seen.add(u)
+                deduped.append(u)
+        return deduped
 
     async def scrape_and_convert(self, urls: List[str]) -> List[Dict[str, Any]]:
         self.output_dir.mkdir(parents=True, exist_ok=True)

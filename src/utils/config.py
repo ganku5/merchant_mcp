@@ -37,6 +37,8 @@ class Config:
     WEB_SCRAPER_URLS: str = ""
     WEB_SCRAPER_OUTPUT_DIR: str = "scraped_docs"
     CONVERSION_LLM_MODEL: str = ""
+    WEB_SCRAPER_MAX_CRAWL_DEPTH: int = 3
+    WEB_SCRAPER_MAX_URLS: int = 200
 
     @classmethod
     def load(cls):
