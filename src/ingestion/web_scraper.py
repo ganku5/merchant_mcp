@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import time
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -431,16 +432,47 @@ class WebDocIngester:
     async def scrape_and_convert(self, urls: List[str]) -> List[Dict[str, Any]]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         results: List[Dict[str, Any]] = []
+        total = len(urls)
+        print(f"\n{'=' * 60}")
+        print(f"  SCRAPE & CONVERT: {total} URL(s)")
+        print(f"  Output dir: {self.output_dir}/")
+        print(f"  LLM model:  {self.model}")
+        print(f"{'=' * 60}\n")
 
         async with httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
             headers={"User-Agent": "MerchantMCP-DocScraper/1.0"},
         ) as client:
-            for url in urls:
+            for i, url in enumerate(urls, 1):
+                print(f"[{i}/{total}] Processing: {url}")
                 result = await self._process_url(client, url)
                 results.append(result)
-                await asyncio.sleep(1)
+                status = result.get("status", "unknown")
+                if status == "ok":
+                    files = result.get("files_written", [])
+                    print(
+                        f"       -> OK: wrote {len(files)} file(s): {', '.join(files)}"
+                    )
+                elif status == "skipped":
+                    print(f"       -> SKIPPED: {result.get('reason', 'unknown')}")
+                else:
+                    print(f"       -> ERROR: {result.get('reason', 'unknown')}")
+                print()
+                if i < total:
+                    await asyncio.sleep(1)
+
+        ok = sum(1 for r in results if r["status"] == "ok")
+        skipped = sum(1 for r in results if r["status"] == "skipped")
+        errors = sum(1 for r in results if r["status"] == "fetch_error")
+        files_written = sum(len(r.get("files_written", [])) for r in results)
+
+        print(f"{'=' * 60}")
+        print(f"  SCRAPE COMPLETE: {ok} ok, {skipped} skipped, {errors} errors")
+        print(f"  Files written: {files_written}")
+        print(f"  Output: {self.output_dir}/")
+        print(f"  Log:    {self.output_dir}/_conversion_log.json")
+        print(f"{'=' * 60}\n")
 
         log_path = self.output_dir / "_conversion_log.json"
         with open(log_path, "w", encoding="utf-8") as f:
@@ -450,45 +482,80 @@ class WebDocIngester:
 
     async def _process_url(self, client: httpx.AsyncClient, url: str) -> Dict[str, Any]:
         logger.info("scraping %s", url)
+        t0 = time.time()
+
+        print(f"       [1/4] Fetching URL...")
         try:
             resp = await client.get(url)
             resp.raise_for_status()
         except Exception as exc:
             logger.error("fetch failed for %s: %s", url, exc)
+            print(f"             Fetch FAILED: {str(exc)[:100]}")
             return {
                 "source_url": url,
                 "status": "fetch_error",
                 "reason": str(exc)[:200],
             }
 
+        fetch_ms = int((time.time() - t0) * 1000)
+        raw_size = len(resp.text)
         content_type = resp.headers.get("content-type", "")
+
         if url.endswith(".md") or "text/markdown" in content_type:
             markdown = resp.text
+            print(
+                f"             Fetched {raw_size:,} chars (raw markdown) in {fetch_ms}ms"
+            )
         else:
+            print(f"             Fetched {raw_size:,} chars (HTML) in {fetch_ms}ms")
+            print(f"       [2/4] Converting HTML to markdown...")
+            md_t0 = time.time()
             markdown = self._html_to_markdown(resp.text, url)
             if self._is_js_spa(markdown):
+                print(
+                    f"             JS-rendered SPA detected, falling back to Playwright..."
+                )
                 logger.info(
                     "detected JS-rendered page, falling back to Playwright for %s", url
                 )
                 rendered = await self._render_with_playwright(url)
                 if rendered:
                     markdown = self._html_to_markdown(rendered, url)
+            md_ms = int((time.time() - md_t0) * 1000)
+            print(f"             Markdown: {len(markdown):,} chars in {md_ms}ms")
 
         if not markdown or len(markdown.strip()) < 100:
+            print(f"       -> SKIPPED: page too short ({len(markdown)} chars)")
             return {
                 "source_url": url,
                 "status": "skipped",
                 "reason": "Page too short or empty after conversion.",
             }
 
+        truncated = len(markdown) > 8000
+        if truncated:
+            print(
+                f"       [3/4] LLM convert (input truncated 8000/{len(markdown):,} chars)..."
+            )
+        else:
+            print(f"       [3/4] LLM convert ({len(markdown):,} chars)...")
+        llm_t0 = time.time()
         files = await self._llm_convert(markdown, url)
+        llm_ms = int((time.time() - llm_t0) * 1000)
+        llm_s = llm_ms / 1000
+
         if not files:
+            print(
+                f"             LLM returned SKIP in {llm_s:.1f}s (not API documentation)"
+            )
             return {
                 "source_url": url,
                 "status": "skipped",
                 "reason": "LLM determined this page is not API/callback documentation.",
             }
 
+        print(f"             LLM produced {len(files)} file(s) in {llm_s:.1f}s")
+        print(f"       [4/4] Writing files...")
         written = []
         for filename, content in files:
             safe_name = self._safe_filename(filename)
@@ -496,6 +563,7 @@ class WebDocIngester:
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(content)
             written.append(safe_name + ".md")
+            print(f"             -> {safe_name}.md ({len(content):,} chars)")
             logger.info("wrote %s (%d chars)", out_path.name, len(content))
 
         return {
@@ -622,13 +690,23 @@ class WebDocIngester:
 
     def zip_output(self) -> str:
         zip_path = str(self.output_dir.parent / f"{self.output_dir.name}.zip")
+        md_files = list(self.output_dir.glob("*.md"))
+        print(f"  Zipping {len(md_files)} file(s) -> {zip_path}")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for md_file in self.output_dir.glob("*.md"):
+            for md_file in md_files:
                 zf.write(md_file, f"server-to-server-apis/{md_file.name}")
+                print(f"    + {md_file.name} ({md_file.stat().st_size:,} bytes)")
+        print(f"  Zip size: {Path(zip_path).stat().st_size:,} bytes")
         return zip_path
 
     async def ingest(self) -> Dict[str, Any]:
         from .docs_zip_ingester import ingest_docs_zip
 
+        print(f"\n{'=' * 60}")
+        print(f"  INGEST: zipping scraped docs and feeding to pipeline")
+        print(f"{'=' * 60}\n")
+
         zip_path = self.zip_output()
-        return await ingest_docs_zip(zip_path)
+        print(f"\n  Calling ingest_docs_zip({zip_path})...\n")
+        result = await ingest_docs_zip(zip_path)
+        return result

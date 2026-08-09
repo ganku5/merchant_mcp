@@ -99,17 +99,7 @@ async def main():
     )
 
     if args.crawl:
-        print(f"Crawling from {args.crawl}...")
         results = await ingester.crawl_and_scrape(args.crawl)
-        ok = sum(1 for r in results if r["status"] == "ok")
-        skipped = sum(1 for r in results if r["status"] == "skipped")
-        errors = sum(1 for r in results if r["status"] == "fetch_error")
-        files_written = sum(len(r.get("files_written", [])) for r in results)
-        print(
-            f"\nDone: {ok} ok, {skipped} skipped, {errors} errors, {files_written} files written"
-        )
-        print(f"Output: {ingester.output_dir}/")
-        print(f"Log: {ingester.output_dir}/_conversion_log.json")
         if not args.ingest:
             print("\nTo ingest: uv run python scripts/ingest_web_docs.py --ingest")
             return
@@ -127,19 +117,7 @@ async def main():
             print("No URLs found. Set WEB_SCRAPER_URLS or use --urls-file.")
             sys.exit(1)
 
-        print(f"Scraping {len(urls)} URL(s)...")
         results = await ingester.scrape_and_convert(urls)
-
-        ok = sum(1 for r in results if r["status"] == "ok")
-        skipped = sum(1 for r in results if r["status"] == "skipped")
-        errors = sum(1 for r in results if r["status"] == "fetch_error")
-        files_written = sum(len(r.get("files_written", [])) for r in results)
-
-        print(
-            f"\nDone: {ok} ok, {skipped} skipped, {errors} errors, {files_written} files written"
-        )
-        print(f"Output: {ingester.output_dir}/")
-        print(f"Log: {ingester.output_dir}/_conversion_log.json")
 
         if not args.ingest:
             print("\nTo ingest: uv run python scripts/ingest_web_docs.py --ingest")
@@ -149,13 +127,12 @@ async def main():
         from src.utils.database import database
 
         await database.connect()
-        print("\nIngesting scraped docs...")
         result = await ingester.ingest()
         await database.close()
         if "content" in result:
-            print(result["content"][0]["text"])
+            print(f"\n{result['content'][0]['text']}")
         else:
-            print(f"Ingestion result: {result}")
+            print(f"\nIngestion result: {result}")
 
 
 if __name__ == "__main__":
