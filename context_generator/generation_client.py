@@ -33,6 +33,7 @@ def request_documentation(
         "model": engine,
         "messages": messages,
         "temperature": temperature,
+        "max_tokens": int(_env("GENERATION_MAX_TOKENS", "6000")),
     }
 
     req = urllib.request.Request(
@@ -45,14 +46,21 @@ def request_documentation(
         method="POST",
     )
 
+    timeout_seconds = int(_env("GENERATION_TIMEOUT_SECONDS", "420"))
+
     try:
-        with urllib.request.urlopen(req, timeout=240) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"Documentation service HTTP error {e.code}: {err_body}") from e
 
     try:
-        return body["choices"][0]["message"]["content"]
+        content = body["choices"][0]["message"]["content"]
     except Exception as e:
         raise RuntimeError(f"Unexpected documentation service response: {json.dumps(body)[:1000]}") from e
+
+    if not content:
+        raise RuntimeError(f"Documentation service returned empty content: {json.dumps(body)[:1000]}")
+
+    return content

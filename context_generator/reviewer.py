@@ -24,17 +24,20 @@ def count_pattern(text: str, pattern: str) -> int:
     return len(re.findall(pattern, text, flags=re.IGNORECASE))
 
 
-def review_doc(markdown_path: str, evidence_path: str, out_dir: str) -> Dict[str, Any]:
+def review_doc(markdown_path: str, evidence_path: str, out_dir: str, config: Dict[str, Any] | None = None) -> Dict[str, Any]:
     md_path = Path(markdown_path)
     ev_path = Path(evidence_path)
 
     markdown = md_path.read_text(errors="ignore")
     evidence = json.loads(ev_path.read_text())
 
+    config = config or {}
+
     issues = []
     warnings = []
 
-    for section in REQUIRED_SECTIONS:
+    required_sections = config.get("required_sections", REQUIRED_SECTIONS)
+    for section in required_sections:
         if f"## {section}" not in markdown:
             issues.append(f"Missing section: {section}")
 
@@ -49,6 +52,36 @@ def review_doc(markdown_path: str, evidence_path: str, out_dir: str) -> Dict[str
         markdown,
         r"typically|likely|expected|illustrative|general guidance|Intent registered successfully|responseCode.*00|Not confirmed from provided evidence|not confirmed from the provided evidence|Evidence Used"
     )
+
+    forbidden_terms = config.get("forbidden_output_terms", [
+        "predicate",
+        "transformer",
+        "handler",
+        "source file",
+        ".hs",
+        "code path",
+        "backend flow",
+        "internal implementation",
+    ])
+
+    lower_doc = markdown.lower()
+    for term in forbidden_terms:
+        if term in lower_doc:
+            issues.append(f"Merchant-facing doc contains internal/code term: {term}")
+
+    if "## Evidence Used" in markdown or "Evidence Used" in markdown:
+        issues.append("Merchant-facing doc must not include Evidence Used section.")
+
+    bad_table_terms = forbidden_terms
+
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and "---" not in stripped:
+            lowered_line = stripped.lower()
+            for term in bad_table_terms:
+                if term in lowered_line:
+                    issues.append(f"Parameter table contains internal/code term: {term}")
+                    break
 
     if '"flow": "COLLECT"' in markdown:
         issues.append('Sample request uses flow=COLLECT; evidence indicates flow should be TRANSACTION if supplied.')

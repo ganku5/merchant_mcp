@@ -3,7 +3,7 @@ import re
 import json
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Any
 
 from context_generator.schemas import RepoSnippet, RepoContext, to_dict
 
@@ -97,14 +97,33 @@ def read_context_lines(path: str, line_no: int, before: int = 12, after: int = 2
         return f"<failed to read {path}: {e}>"
 
 
+def _matches_any(path: str, patterns: List[str]) -> bool:
+    path_obj = Path(path)
+    return any(path_obj.match(pattern) for pattern in patterns)
+
+
+def _is_excluded(path: str, patterns: List[str]) -> bool:
+    return _matches_any(path, patterns)
+
+
 def build_repo_context(
     repo_path: str,
     api: str,
     max_files: int = 20,
     max_snippets_per_file: int = 4,
+    config: Dict[str, Any] | None = None,
 ) -> RepoContext:
+    config = config or {}
     repo_path = str(Path(repo_path).expanduser().resolve())
-    keywords = api_keywords(api)
+
+    configured_keywords = config.get("contract_keywords", [])
+    keywords = list(dict.fromkeys(api_keywords(api) + configured_keywords))
+
+    include_globs = config.get("include_globs", [])
+    exclude_globs = config.get("exclude_globs", [])
+    priority_path_keywords = config.get("priority_path_keywords", [])
+    deprioritize_path_keywords = config.get("deprioritize_path_keywords", [])
+    contract_keywords = config.get("contract_keywords", [])
 
     matches_by_file: Dict[str, Dict[str, Set[int]]] = {}
 
@@ -115,6 +134,14 @@ def build_repo_context(
                 continue
 
             path, line_no_str, _content = parts
+            rel_path = os.path.relpath(path, repo_path)
+
+            if include_globs and not _matches_any(rel_path, include_globs):
+                continue
+
+            if _is_excluded(rel_path, exclude_globs):
+                continue
+
             ext = Path(path).suffix
 
             if ext and ext not in DEFAULT_EXTENSIONS:
@@ -158,10 +185,25 @@ def build_repo_context(
         if "productmerchanttransactionsv2" in normalized_path:
             score += 35
 
+        # Repo-specific priority boosts.
+        for keyword in priority_path_keywords:
+            if keyword.lower() in lower_path:
+                score += 1000
+
+        for keyword in deprioritize_path_keywords:
+            if keyword.lower() in lower_path:
+                score -= 500
+
+        matched_text = " ".join(term_map.keys()).lower()
+        for keyword in contract_keywords:
+            keyword_lower = keyword.lower()
+            if keyword_lower in lower_path or keyword_lower in matched_text:
+                score += 10
+
         # Generic boosts.
         for boost in [
-            "route", "handler", "api", "type", "types", "validation", "service",
-            "transformer", "error", "config", "merchant", "transaction", "refund", "mandate"
+            "route", "api", "type", "types", "validation", "service",
+            "error", "config", "merchant", "transaction", "refund", "mandate"
         ]:
             if boost in lower_path:
                 score += 3
