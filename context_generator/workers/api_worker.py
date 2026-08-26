@@ -3,7 +3,8 @@ import re
 from pathlib import Path
 from typing import Dict, Any, List
 
-from context_generator.schemas import RepoContext, to_dict
+from context_generator.schemas import RepoContext
+from context_generator.contract_extractor import extract_contract
 from context_generator.generation_client import request_documentation
 
 
@@ -15,6 +16,15 @@ def slugify_api(api: str) -> str:
 
 def doc_id_for_api(api: str) -> str:
     return slugify_api(api).replace("-", "_")
+
+
+
+def to_dict(obj):
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "__dict__"):
+        return obj.__dict__
+    return obj
 
 
 def build_context_packet(ctx: RepoContext, max_files: int = 5, max_snippets_per_file: int = 1) -> str:
@@ -44,6 +54,7 @@ def build_context_packet(ctx: RepoContext, max_files: int = 5, max_snippets_per_
 def generate_markdown(ctx: RepoContext, config: Dict[str, Any] | None = None) -> str:
     config = config or {}
     context_packet = build_context_packet(ctx)
+    contract = extract_contract(ctx)
     focus = config.get("documentation_focus", "merchant-facing API integration documentation")
     repo_name = config.get("repo_name", "the configured repository")
     forbidden_terms = ", ".join(config.get("forbidden_output_terms", []))
@@ -67,7 +78,14 @@ Rules:
 - Do not use existing generated docs, curated docs, external docs, assumptions, or general knowledge as facts.
 - Existing Newton server-to-server docs may be used only as style/structure reference, never as factual source.
 - Extract merchant-facing business and API details from route definitions, request/response types, validation branches, error constructors/messages, constants/enums, and product/business logic.
-- Preserve all source-supported merchant-facing details such as endpoint, HTTP method, authentication, request fields, response fields, validations, errors, retry/status guidance, and response details.
+- Preserve all source-supported merchant-facing details such as endpoint, HTTP method, authentication, request fields, response fields, response payload fields, validations, errors, retry/status guidance, and response details.
+- Use the extracted contract as the primary source for request fields, response fields, payload fields, and constraints.
+- Do not drop response payload fields listed in the extracted contract.
+- Do not use angle-bracket placeholders in sample JSON responses.
+- Use extracted_contract as the primary structured API contract. It is derived from the configured source repository.
+- Include all request fields, response envelope fields, and response payload fields present in extracted_contract.
+- Sample responses may use realistic example values for structurally supported fields; do not invent extra fields not present in extracted_contract.
+- Request and response field tables should include a Constraints column.
 - Include conditionally required fields when source evidence supports them. For example, include `payeeVpa` when dynamic VPA validation is present.
 - Do not omit request fields that are referenced in validations or business behavior.
 - Retry guidance must tell merchants to check transaction status for unknown outcomes before creating a new request; do not suggest blind retries.
@@ -83,16 +101,15 @@ Rules:
 - Do not mention source file names, code paths, function names, modules, predicates, transformers, handlers, or where something is defined in code.
 - Do not include an Evidence Used section.
 - Do not infer unsupported facts.
+- Do not describe an API as international, cross-border, overseas, foreign, or global unless those exact business terms are present in the extracted contract or source evidence for that API.
+- Field names such as IFSC, account number, or account type must be documented only as fields; do not convert them into unsupported business use cases.
 - Do not write "typically", "likely", "expected", "illustrative", or "general guidance".
 - Do not analyze the source material in the response.
 - Do not explain your plan.
 - Start directly with the markdown title.
 - Keep the document concise.
 - Sample request may use realistic example values for readability when field names are supported by {repo_name} codebase evidence.
-- Sample response must use placeholders unless exact literal values are supported by {repo_name} codebase evidence.
 - If `flow` is included and evidence says it must be TRANSACTION, use "TRANSACTION"; otherwise omit it.
-- Sample response must not invent success codes/messages.
-- For Sample Response, include the response envelope and structurally supported fields. Use generic placeholder values such as "<response_code>", "<response_message>", "<gateway_transaction_id>", and "<order_id>" when exact literal values are not present in codebase evidence.
 - Do not use unconfirmed placeholder text.
 - Use markdown only.
 - Do not write analysis, planning, reasoning, or explanation before the final markdown.
@@ -115,6 +132,7 @@ Keep the output concise and merchant-facing. Preserve source-supported endpoint,
 
 Required markdown structure.
 All sections below are mandatory. Follow the Newton server-to-server guide style where possible.
+Print each H2 section exactly once. Do not duplicate headings like `## Response`.
 Do not leave any markdown code fence unclosed.
 
 Required markdown structure:
@@ -137,6 +155,12 @@ Source endpoint: use the discovered method and route path.
 ### Field Reference
 ## Error Handling
 ## Retry / Status Guidance
+Extracted contract from source repository:
+
+```json
+{json.dumps(contract, indent=2)}
+```
+
 Source material:
 
 {context_packet}

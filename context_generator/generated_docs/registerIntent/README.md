@@ -1,19 +1,8 @@
-# registerIntent generated docs
+# registerIntent generated documentation sample
 
-This folder contains the generated merchant facing documentation sample for registerIntent
+This folder contains a generated registerIntent merchant documentation sample produced by the generic context generator using the configured newton-hs codebase as the source of truth.
 
-Generated using the API context generator with newton repo as the source of truth
-
-Command used
-
-PYTHONPATH=. python -m context_generator.orchestrator \
-  --repo-path "$NEWTON_REPO" \
-  --api registerIntent \
-  --config context_generator/configs/merchant_mcp.json \
-  --out context_generator/generated/registerIntent_final_generate2
-
-Files
-
-- register-intent.md generated merchant facing API doc
-- register-intent.review.json reviewer result
-- docs_s2s.zip zip artifact for MCP ingestion
+Files:
+- register-intent.md
+- register-intent.review.json
+- docs_s2s.zip

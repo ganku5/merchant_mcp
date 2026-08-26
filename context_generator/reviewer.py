@@ -98,6 +98,29 @@ def review_doc(markdown_path: str, evidence_path: str, out_dir: str, config: Dic
     if source_files_count <= 0:
         issues.append("Evidence file has no sources.")
 
+    h2s = re.findall(r"(?m)^##\s+(.+?)\s*$", markdown)
+    duplicates = sorted({h for h in h2s if h2s.count(h) > 1})
+    for heading in duplicates:
+        issues.append(f"Duplicate H2 heading: {heading}")
+
+    if re.search(r"<[a-zA-Z][a-zA-Z0-9_ -]*>", markdown):
+        issues.append("Angle-bracket placeholder found in generated markdown.")
+
+    if "sample_value" in markdown:
+        issues.append("sample_value placeholder found in generated markdown.")
+
+    unsupported_business_terms = [
+        "international merchant",
+        "international merchant accounts",
+        "cross-border",
+        "overseas",
+        "foreign merchant",
+        "global merchant",
+    ]
+    for term in unsupported_business_terms:
+        if term in markdown.lower():
+            issues.append(f"Potential unsupported business/use-case term found: {term}")
+
     if issues:
         status = "NEEDS_FIX"
         confidence = "low"
