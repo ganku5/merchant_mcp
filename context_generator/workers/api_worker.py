@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 
 from context_generator.schemas import RepoContext
 from context_generator.contract_extractor import extract_contract
+from context_generator.source_context import build_focused_source_context, build_nested_contract_summary
 from context_generator.generation_client import request_documentation
 
 
@@ -55,6 +56,8 @@ def generate_markdown(ctx: RepoContext, config: Dict[str, Any] | None = None) ->
     config = config or {}
     context_packet = build_context_packet(ctx)
     contract = extract_contract(ctx)
+    focused_source_context = build_focused_source_context(ctx, contract)
+    nested_contract_summary = build_nested_contract_summary(ctx, contract)
     focus = config.get("documentation_focus", "merchant-facing API integration documentation")
     repo_name = config.get("repo_name", "the configured repository")
     forbidden_terms = ", ".join(config.get("forbidden_output_terms", []))
@@ -79,6 +82,9 @@ Rules:
 - Existing Newton server-to-server docs may be used only as style/structure reference, never as factual source.
 - Extract merchant-facing business and API details from route definitions, request/response types, validation branches, error constructors/messages, constants/enums, and product/business logic.
 - Preserve all source-supported merchant-facing details such as endpoint, HTTP method, authentication, request fields, response fields, response payload fields, validations, errors, retry/status guidance, and response details.
+- Preserve source-supported defaults, omitted-field behavior, feature gates, nested object structures, version-specific behavior, idempotency behavior, expiry behavior, payment-time validation behavior, and failure response behavior when present in the focused source context.
+- For nested request objects, document their child fields only when the nested type definition is present in focused source context.
+- Include multiple request examples only when the required fields and feature behavior are source-supported.
 - Use the extracted contract as the primary source for request fields, response fields, payload fields, and constraints.
 - Do not drop response payload fields listed in the extracted contract.
 - Do not use angle-bracket placeholders in sample JSON responses.
@@ -150,9 +156,16 @@ Source endpoint: use the discovered method and route path.
 ### Required Minimum
 ### Field Reference
 ### Defaults and Omitted Field Behavior
+### Nested Request Objects
+## Request Examples
 ## Response
 ### Success Response
 ### Field Reference
+## Response Versioning
+## Idempotency
+## Expiry
+## Validation During Payment
+## Feature-Specific Notes
 ## Error Handling
 ## Retry / Status Guidance
 Extracted contract from source repository:
@@ -161,7 +174,17 @@ Extracted contract from source repository:
 {json.dumps(contract, indent=2)}
 ```
 
-Source material:
+Nested contract summary from source repository:
+
+```json
+{json.dumps(nested_contract_summary, indent=2)}
+```
+
+Focused source context from repository:
+
+{focused_source_context}
+
+Ranked source snippets:
 
 {context_packet}
 """

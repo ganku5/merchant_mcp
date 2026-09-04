@@ -2,39 +2,34 @@
 
 ## Overview
 
-`registerIntent` registers a UPI intent transaction for a merchant. On success, the API returns the identifiers and payment details (such as `gatewayTransactionId`, `orderId`, and payee details) required to continue the UPI journey.
+Source endpoint: `POST /merchants/transactions/registerIntent`
 
-- Source endpoint: `POST /merchants/transactions/registerIntent`
-- Request body: JSON
-- Response body: JSON
-- Authentication: This endpoint requires merchant authentication (vault-based credentials).
+`registerIntent` registers a UPI intent transaction with Juspay before the customer completes payment. On success, the API returns the identifiers and payee details required to continue the UPI journey, including `gatewayTransactionId`, `orderId`, `payeeName`, and `payeeVpa`.
 
 ## Business Use Case
 
-Use `registerIntent` to create a UPI intent payment request that the customer completes in a UPI app. The API supports:
+Use `registerIntent` when your server needs to register a UPI payment intent ahead of the customer paying through a UPI app. The API supports:
 
-- Transaction and mandate flows (`flow`: `TRANSACTION` or `MANDATE`)
-- Third-party validation configuration (`tpvType`: `FULL` or `PARTIAL`)
-- Dynamic payee VPA (`payeeVpa`, required when dynamic VPA validation is enabled)
-- Intent expiry control in minutes or seconds
-- Split details, split settlement details, mutual fund details, tips, sub-merchant details, and merchant-defined UDF parameters
+- Standard transaction intents and mandate intents (`flow`: `TRANSACTION` or `MANDATE`).
+- Dynamic payee VPA assignment (`payeeVpa`) when dynamic VPA validation is enabled for your merchant account.
+- Third-party validation configuration (`tpvType`, `payerAccountHashes`).
+- Split details, split settlement configuration, sub-merchant details, mutual fund details, and tips.
 
 ## Integration Flow
 
-1. Build the request with a unique `merchantRequestId` and any optional business fields (amount, remarks, expiry, flow, TPV, splits, and so on).
-2. Send the authenticated `POST` request with a JSON body.
-3. The request is validated (field length, format, and allowed-value checks). Validation failures return a `FAILURE` status with an error `responseCode`.
-4. On success, read `payload.gatewayTransactionId` and `payload.orderId` and store them for the subsequent UPI journey and status tracking.
-5. If the outcome is unknown (timeout or no response), check the transaction status before submitting a new request.
+1. Generate a unique `merchantRequestId` for the intent registration.
+2. Send a `POST` request to the `registerIntent` endpoint with the request body.
+3. On success, read `payload.gatewayTransactionId`, `payload.orderId`, and the payee details, and use them to continue the UPI payment journey.
+4. If the response is a failure, or the outcome is unknown (timeout, network error), check the transaction status before creating a new registration request.
 
 ## Endpoint
 
-| Property | Value |
-|---|---|
-| Method | `POST` |
-| URL | `{{host}}/api/{{uri}}/merchants/transactions/registerIntent` |
-| Content-Type | `application/json` |
-| Authentication | Merchant vault credentials |
+```
+POST {{host}}/api/{{uri}}/merchants/transactions/registerIntent
+```
+
+- Content type: `application/json`
+- The endpoint is authenticated; send the merchant credentials configured for your server-to-server integration.
 
 ## Request
 
@@ -43,28 +38,6 @@ Use `registerIntent` to create a UPI intent payment request that the customer co
 ```json
 {
   "merchantRequestId": "REQ-2024-000123"
-}
-```
-
-`payeeVpa` is additionally required when dynamic VPA validation is enabled for the merchant.
-
-### Sample Request
-
-```json
-{
-  "merchantRequestId": "REQ-2024-000123",
-  "merchantCustomerId": "CUST98765",
-  "upiRequestId": "UPIREQ12345",
-  "amount": "199.00",
-  "remarks": "Order payment",
-  "refUrl": "https://merchant.example.com/order/ORDER123456789",
-  "refCategory": "00",
-  "intentRequestExpiryMinutes": "30",
-  "flow": "TRANSACTION",
-  "enableTips": false,
-  "payeeVpa": "acme@upi",
-  "tpvType": "FULL",
-  "udfParameters": "{\"udf1\":\"value1\"}"
 }
 ```
 
@@ -79,28 +52,110 @@ Use `registerIntent` to create a UPI intent payment request that the customer co
 | `remarks` | String | No | 1–255 characters; must match `^[ ]*[a-zA-Z0-9-][a-zA-Z0-9 _.,-]*$` |
 | `refUrl` | String | No | — |
 | `refCategory` | String | No | — |
-| `intentRequestExpiryMinutes` | String | No | Digits only; value greater than 0 and up to 64800 |
-| `intentRequestExpirySeconds` | String | No | Digits only; value greater than 0 and up to 3888000 |
+| `intentRequestExpiryMinutes` | String | No | Digits only; value must be greater than 0 and less than or equal to 64800 |
+| `intentRequestExpirySeconds` | String | No | Digits only; value must be greater than 0 and less than or equal to 3888000 |
 | `flow` | String | No | Allowed values: `TRANSACTION`, `MANDATE` |
-| `splitDetails` | Array | No | — |
+| `splitDetails` | Array | No | Array of split detail objects; see Nested Request Objects |
 | `enableTips` | Boolean | No | — |
-| `mutualFundDetails` | Array | No | — |
-| `payerAccountHashes` | Array | No | Must be non-empty when provided |
+| `mutualFundDetails` | Array | No | Array of mutual fund detail objects; see Nested Request Objects |
+| `payerAccountHashes` | Array | No | When provided, the list must be non-empty |
 | `iat` | String | No | — |
-| `udfParameters` | String | No | Must be a valid JSON object string; must not contain the characters `/ $ - * ! % ~ `` ` |
-| `splitSettlementDetails` | Object | No | — |
+| `udfParameters` | String | No | Must be a JSON object serialized as text; must not contain the characters `/ $ - * ! % ~ `` ` |
+| `splitSettlementDetails` | Object | No | See Nested Request Objects |
 | `firstExecutionAmount` | String | No | — |
 | `applyRefundOnSuccess` | String | No | Must be `true` or `false` (case-insensitive) |
-| `subMerchantDetails` | Object | No | — |
-| `payeeVpa` | String | Conditional | Required when dynamic VPA validation is enabled; 3–255 characters; must match the configured VPA format |
+| `subMerchantDetails` | Object | No | See Nested Request Objects |
+| `payeeVpa` | String | Conditional | Required when dynamic VPA validation is enabled for the merchant; 3–255 characters; must match the configured VPA format |
 | `tpvType` | String | No | Allowed values: `FULL`, `PARTIAL` |
 
 ### Defaults and Omitted Field Behavior
 
-- Only `merchantRequestId` is mandatory. All other fields are optional and may be omitted.
-- Field validations run only when a field is present; omitted optional fields are not validated.
-- `payeeVpa` is conditionally required: it must be sent when dynamic VPA validation is enabled for the merchant.
-- `merchantRequestId` acts as the merchant reference and idempotency identifier for the request.
+- `merchantRequestId` is the only mandatory field. All other fields are optional.
+- Optional fields that are omitted are not validated and take no default value in the request.
+- `payeeVpa` is optional in the general case but becomes required when dynamic VPA validation is enabled for your merchant account.
+
+### Nested Request Objects
+
+**`splitDetails`** — array of objects:
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | String | Yes |
+| `value` | String | Yes |
+
+**`mutualFundDetails`** — array of objects:
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `memberId` | String | Yes | — |
+| `userId` | String | Yes | — |
+| `mfPartner` | String | Yes | Allowed values: `NSE`, `BSE`, `KFIN`, `CAMS` |
+| `investmentType` | String | Yes | Allowed values: `LUMPSUM`, `SIP` |
+| `orderNumber` | String | Yes | — |
+| `amount` | String | Yes | — |
+| `amcCode` | String | No | — |
+| `folioNumber` | String | No | — |
+| `ihNumber` | String | No | — |
+| `schemeCode` | String | No | — |
+| `panNumber` | String | No | — |
+| `applicationNumber` | String | No | Partner reference number (ITRN) |
+
+**`splitSettlementDetails`** — object:
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `splitType` | String | Yes | Allowed values: `AMOUNT`, `PERCENTAGE`, `DEFAULT`, `LATER` |
+| `merchantSplit` | String | No | — |
+| `partnersSplit` | Array | No | Array of objects with `partnerId` (String, required) and `value` (String, required) |
+
+**`subMerchantDetails`** — object:
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `name` | String | Yes | — |
+| `accountNumber` | String | No | — |
+| `ifsc` | String | No | — |
+| `bankName` | String | No | — |
+| `accountType` | String | No | — |
+| `bankIIN` | String | No | — |
+| `mcc` | String | Yes | — |
+| `brandName` | String | Yes | — |
+| `legalName` | String | Yes | — |
+| `franchise` | String | Yes | — |
+| `merchantType` | String | Yes | `SMALL` or `LARGE` |
+| `ownershipType` | String | Yes | — |
+| `genre` | String | Yes | `OFFLINE` or `ONLINE` |
+| `onboardingType` | String | Yes | `BANK`, `AGGREGATOR`, `NETWORK`, or `TPAP` |
+| `gstin` | String | No | — |
+| `mid` | String | No | — |
+| `sid` | String | No | — |
+| `tid` | String | No | — |
+
+## Request Examples
+
+Minimum request:
+
+```json
+{
+  "merchantRequestId": "REQ-2024-000123"
+}
+```
+
+Request with amount, expiry, and dynamic payee VPA:
+
+```json
+{
+  "merchantRequestId": "REQ-2024-000124",
+  "merchantCustomerId": "CUST-8899",
+  "amount": "100.00",
+  "remarks": "Order payment",
+  "intentRequestExpiryMinutes": "30",
+  "payeeVpa": "acme@upi",
+  "tpvType": "FULL",
+  "payerAccountHashes": ["a1b2c3d4e5"],
+  "udfParameters": "{\"udf1\":\"order-7788\"}"
+}
+```
 
 ## Response
 
@@ -110,27 +165,29 @@ Use `registerIntent` to create a UPI intent payment request that the customer co
 {
   "status": "SUCCESS",
   "responseCode": "SUCCESS",
-  "responseMessage": "Intent registered successfully",
+  "responseMessage": "SUCCESS",
   "payload": {
     "merchantId": "MERCHANT123",
-    "merchantChannelId": "CHANNEL01",
-    "merchantCustomerId": "CUST98765",
-    "merchantRequestId": "REQ-2024-000123",
-    "gatewayTransactionId": "GTWTXN9F8E7D6C5B",
-    "orderId": "ORDER123456789",
+    "merchantChannelId": "CHANNEL123",
+    "merchantCustomerId": "CUST-8899",
+    "merchantRequestId": "REQ-2024-000124",
+    "gatewayTransactionId": "GTXN987654321",
+    "orderId": "ORDER987654",
     "payeeName": "Acme Stores",
     "payeeVpa": "acme@upi",
     "payeeMcc": "5411",
-    "amount": "199.00",
+    "amount": "100.00",
     "currency": "INR",
     "remarks": "Order payment",
-    "refUrl": "https://merchant.example.com/order/ORDER123456789",
-    "refCategory": "00",
+    "refUrl": "https://merchant.example.com/order/7788",
+    "refCategory": "RETAIL",
     "flow": "TRANSACTION",
-    "enableTips": false,
-    "tpvType": "FULL"
+    "tpvType": "FULL",
+    "payerAccountHashes": ["a1b2c3d4e5"],
+    "firstExecutionAmount": "100.00",
+    "applyRefundOnSuccess": "true"
   },
-  "udfParameters": "{\"udf1\":\"value1\"}"
+  "udfParameters": "{\"udf1\":\"order-7788\"}"
 }
 ```
 
@@ -140,65 +197,112 @@ Response envelope:
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
-| `status` | String | Yes | Overall status of the request |
+| `status` | String | Yes | Request outcome status |
 | `responseCode` | String | Yes | Machine-readable result code |
-| `responseMessage` | String | Yes | Result message |
-| `payload` | Object | No | Registration details; not present on error responses |
-| `udfParameters` | String | No | Merchant-defined UDF parameters |
+| `responseMessage` | String | Yes | Human-readable result message |
+| `payload` | Object | No | Present on success; contains the registered intent details |
+| `udfParameters` | String | No | Echoes the UDF parameters sent in the request |
 
-`payload` fields:
+Response payload:
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
 | `merchantId` | String | Yes | — |
 | `merchantChannelId` | String | Yes | — |
+| `subMerchantId` | String | No | Returned from payload version V3 onward |
+| `subMerchantChannelId` | String | No | Returned from payload version V3 onward |
 | `merchantCustomerId` | String | No | — |
-| `merchantRequestId` | String | Yes | Echo of the request identifier; duplicates return `DUPLICATE_REQUEST` |
+| `merchantRequestId` | String | Yes | Echoes the request identifier |
 | `gatewayTransactionId` | String | Yes | Gateway identifier for the transaction |
 | `orderId` | String | Yes | Order identifier for the registered intent |
 | `payeeName` | String | Yes | — |
-| `payeeVpa` | String | Conditional | Present when dynamic VPA validation is enabled |
+| `payeeVpa` | String | Conditional | Returned when dynamic VPA validation is enabled |
 | `payeeMcc` | String | No | — |
 | `amount` | String | No | — |
+| `splitDetails` | Array | No | Returned from payload version V3 onward |
+| `enableTips` | Boolean | No | Returned from payload version V3 onward |
 | `currency` | String | No | — |
 | `remarks` | String | No | — |
 | `refUrl` | String | No | — |
 | `refCategory` | String | No | — |
+| `flow` | String | No | Returned from payload version V2 onward |
+| `tpvType` | String | No | Returned from payload version V4 onward |
 | `mutualFundDetails` | Array | No | — |
 | `payerAccountHashes` | Array | No | — |
+| `splitSettlementDetails` | Object | No | Returned from payload version V3 onward |
 | `firstExecutionAmount` | String | No | — |
 | `applyRefundOnSuccess` | String | No | — |
-| `flow` | String | No | — |
-| `subMerchantId` | String | No | — |
-| `subMerchantChannelId` | String | No | — |
-| `splitDetails` | Array | No | — |
-| `enableTips` | Boolean | No | — |
-| `splitSettlementDetails` | Object | No | — |
-| `tpvType` | String | No | — |
+
+## Response Versioning
+
+The response payload is versioned. Newer versions add fields on top of the base payload:
+
+- **V1 (base):** `merchantId`, `merchantChannelId`, `merchantCustomerId`, `merchantRequestId`, `gatewayTransactionId`, `orderId`, `payeeName`, `payeeVpa`, `payeeMcc`, `amount`, `currency`, `remarks`, `refUrl`, `refCategory`, `mutualFundDetails`, `payerAccountHashes`, `firstExecutionAmount`, `applyRefundOnSuccess`.
+- **V2:** adds `flow`.
+- **V3:** adds `subMerchantId`, `subMerchantChannelId`, `splitDetails`, `enableTips`, and `splitSettlementDetails`.
+- **V4:** adds `tpvType`.
+
+## Idempotency
+
+`merchantRequestId` is the merchant reference and idempotency identifier for the request. It must be unique per request. Submitting a request with a `merchantRequestId` that was already used returns a failure response with `responseCode` `DUPLICATE_REQUEST` and a null payload.
+
+## Expiry
+
+You can control how long the registered intent remains payable using either expiry field:
+
+- `intentRequestExpiryMinutes`: numeric string, greater than 0 and up to 64800.
+- `intentRequestExpirySeconds`: numeric string, greater than 0 and up to 3888000.
+
+Values outside these ranges, or non-numeric values, fail validation.
+
+## Validation During Payment
+
+- `payeeVpa` must be supplied when dynamic VPA validation is enabled for your merchant account; it must be 3–255 characters and match the configured VPA format.
+- `tpvType` (`FULL` or `PARTIAL`) configures third-party validation behavior for the payment.
+- `payerAccountHashes`, when provided, must be a non-empty list.
+
+## Feature-Specific Notes
+
+- `flow` accepts only `TRANSACTION` or `MANDATE`; any other value fails validation.
+- `applyRefundOnSuccess` is a boolean string and accepts only `true` or `false` (case-insensitive).
+- `udfParameters` must be a JSON object serialized as text and must not contain the characters `/ $ - * ! % ~ `` `; the same value is echoed back in the response envelope.
+- `mutualFundDetails[].mfPartner` accepts `NSE`, `BSE`, `KFIN`, or `CAMS`; `mutualFundDetails[].investmentType` accepts `LUMPSUM` or `SIP`.
+- `splitSettlementDetails.splitType` accepts `AMOUNT`, `PERCENTAGE`, `DEFAULT`, or `LATER`.
 
 ## Error Handling
 
-Error responses use the same envelope with `status` set to `FAILURE`, an error `responseCode` and `responseMessage`, and no `payload`.
+Failures return `status` `FAILURE` with a `responseCode` and `responseMessage` describing the failure, and a null payload.
+
+| Condition | Response |
+|---|---|
+| `merchantRequestId` already used | `responseCode`: `DUPLICATE_REQUEST`, `responseMessage`: `DUPLICATE_REQUEST`, `payload`: null |
+| `merchantRequestId` fails length or format rules | Validation failure (length must be 1–35; format `^[-._]*([a-zA-Z0-9][-._]*)+$`) |
+| `merchantCustomerId` fails length or format rules | Validation failure (length 1–256; allowed character set) |
+| `upiRequestId` fails length or format rules | Validation failure (length 1–35; alphanumeric only) |
+| `amount` format invalid or not greater than 0 | Validation failure |
+| `remarks` fails length or format rules | Validation failure (length 1–255) |
+| Expiry value non-numeric or out of range | Validation failure |
+| `flow` not in `TRANSACTION`, `MANDATE` | Validation failure |
+| `tpvType` not in `FULL`, `PARTIAL` | Validation failure |
+| `payerAccountHashes` provided as an empty list | Validation failure |
+| `udfParameters` not parseable as a JSON object or contains disallowed characters | Validation failure |
+| `applyRefundOnSuccess` not `true`/`false` | Validation failure |
+| `payeeVpa` fails length or format rules | Validation failure (length 3–255) |
+
+Example duplicate-request failure:
 
 ```json
 {
   "status": "FAILURE",
   "responseCode": "DUPLICATE_REQUEST",
-  "responseMessage": "DUPLICATE_REQUEST"
+  "responseMessage": "DUPLICATE_REQUEST",
+  "payload": null
 }
 ```
 
-| responseCode | Meaning |
-|---|---|
-| `BAD_REQUEST` | The request failed validation (length, format, or allowed-value checks). Correct the fields and resubmit. |
-| `DUPLICATE_REQUEST` | The `merchantRequestId` has already been used. Do not resubmit the same request body with the same identifier. |
-| `REQUEST_PENDING` | A previous request is still being processed. |
-| `REQUEST_EXPIRED` | The request has expired. |
-
 ## Retry / Status Guidance
 
-- Treat `merchantRequestId` as the idempotency identifier. Reusing it returns `DUPLICATE_REQUEST`.
-- If the outcome of a request is unknown (timeout, network failure, or no response), check the transaction status first before creating a new request. Do not retry blindly.
-- If the status shows the original request was registered, continue the journey with the returned `gatewayTransactionId` and `orderId` instead of registering again.
-- On `REQUEST_PENDING`, wait and check the transaction status again.
-- On `REQUEST_EXPIRED` or a confirmed failed registration, create a new request with a new unique `merchantRequestId`.
+- If the request fails validation, correct the field values and resend.
+- If the outcome of a request is unknown (timeout, network failure, or no response), check the transaction status using the transaction status API before creating a new `registerIntent` request. Do not blindly retry.
+- Do not resend the same `merchantRequestId` after receiving `DUPLICATE_REQUEST`; confirm the status of the original request first.
+- Use a new unique `merchantRequestId` only when you are intentionally creating a new intent registration.

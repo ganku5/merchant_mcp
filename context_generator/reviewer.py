@@ -109,6 +109,15 @@ def review_doc(markdown_path: str, evidence_path: str, out_dir: str, config: Dic
     if "sample_value" in markdown:
         issues.append("sample_value placeholder found in generated markdown.")
 
+    bad_nested_phrases = [
+        "child structures are not part",
+        "item structures are not covered",
+        "not covered here",
+    ]
+    for phrase in bad_nested_phrases:
+        if phrase in markdown.lower():
+            issues.append(f"Unsupported nested structure disclaimer found: {phrase}")
+
     unsupported_business_terms = [
         "international merchant",
         "international merchant accounts",
